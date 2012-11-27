@@ -22,3 +22,11 @@ REPORTED VERSION CONFLICTS
 Since the patches do not change anything other than the code modified by the update, there is some text which will not be removed by the patches.  In particular, drupal docroots which were originally 'packed' by the drupal packing script include version number information in the core module .info files.  Git versions of drupal do not include this version information.  These patches are based off of git releases, and so do not necessarily modify the .info files.  As a result, drush and the update module will MISREPORT version numbers. 
 
 The packing script version information is not required to ascertain the correct version number of the drupal install, which is also in the system.module.  Scripts exist to simply remove this information.  This can be done by running 'rmv_dpl-version_nums.sh'.  Use as you see fit.
+
+ACQUIA DRUPAL/PROFILE CONFLICTS
+Updating an entire profile, whether Acquia Drupal, OpenPublish, etc., often means updating all included modules as well.  This can be a problem with applying unnecessary module updates.  As a result, we often recommend moving away from the profile.  This usually means simply updating modules by placing them in the sites/all/modules directory, which is prioritized over any modules in profiles/profile/modules.  However, Acquia Drupal has a file that indicates whether it is an AD site, and this file must be edited in order to prevent core version reporting conflicts.  
+
+The file: profiles/acquia/modules/acquia_connector/acquia_agent/acquia_agent_drupal_version.inc.
+Change: define('IS_ACQUIA_DRUPAL', TRUE); to FALSE.
+or, 
+run: rmv_acquiadrupal.sh

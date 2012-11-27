@@ -2,7 +2,7 @@
 # run on older version of drupal, BEFORE applying patches.  
 # This does not remove Acquia Drupal packing information.
 #
-# must: chmod +x ~/rmv_version_nums.shn (makes executable)
+# must: chmod +x ~/rmv_dpl-version_nums.sh (makes executable)
 #
 # - @mariagwyn with the  help of greggles.
 sed -i '' 's/; Information added by drupal.org packaging script on [0-9]*-[0-9]*-[0-9]*//g' modules/*/*.info themes/*/*.info themes/tests/*/*.info modules/*/*/*.info modules/*/*/*/*.info
