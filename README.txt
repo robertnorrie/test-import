@@ -12,7 +12,7 @@ There are a few patches for moving from drupal to pressflow.  They seem to work 
 
 Patches must be run either:
 
-1. From drupal docroot using the 'patch' command: patch -p1 > /path/to/patches/drupal/version.patch.  This method works whether the docroot is a 'gitted' or not.
+1. From drupal docroot using the 'patch' command: patch -p1 < /path/to/patches/drupal/version.patch.  This method works whether the docroot is a 'gitted' or not.
 2. From a git-initialized drupal docroot, run something like this: 'git apply -v --ignore-whitespace /path/to/patches/drupal/version.patch'.  I often add '--reject' which will apply the patch even if there are problems, and create .rej files for hand patching.
 
 In both cases: Check for .rej and .orig files where patch may have failed.  Manually fix the working version and delete these extra files.
