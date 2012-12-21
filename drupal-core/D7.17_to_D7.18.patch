@@ -1,0 +1,107 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 94522f5..7f4f0ff 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,3 +1,6 @@
++Drupal 7.18, 2012-12-19
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2012-004.
+ 
+ Drupal 7.17, 2012-11-07
+ -----------------------
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index c9b17fe..1b48217 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.17');
++define('VERSION', '7.18');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/file.inc b/includes/file.inc
+index 1e256c6..278be3d 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -1113,6 +1113,9 @@ function file_munge_filename($filename, $extensions, $alerts = TRUE) {
+ 
+   // Allow potentially insecure uploads for very savvy users and admin
+   if (!variable_get('allow_insecure_uploads', 0)) {
++    // Remove any null bytes. See http://php.net/manual/en/security.filesystem.nullbytes.php
++    $filename = str_replace(chr(0), '', $filename);
++
+     $whitelist = array_unique(explode(' ', trim($extensions)));
+ 
+     // Split the filename up by periods. The first part becomes the basename
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 2c02f8c..622fe4d 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -933,14 +933,18 @@ function user_search_execute($keys = NULL, $conditions = NULL) {
+   $query = db_select('users')->extend('PagerDefault');
+   $query->fields('users', array('uid'));
+   if (user_access('administer users')) {
+-    // Administrators can also search in the otherwise private email field.
++    // Administrators can also search in the otherwise private email field,
++    // and they don't need to be restricted to only active users.
+     $query->fields('users', array('mail'));
+     $query->condition(db_or()->
+       condition('name', '%' . db_like($keys) . '%', 'LIKE')->
+       condition('mail', '%' . db_like($keys) . '%', 'LIKE'));
+   }
+   else {
+-    $query->condition('name', '%' . db_like($keys) . '%', 'LIKE');
++    // Regular users can only search via usernames, and we do not show them
++    // blocked accounts.
++    $query->condition('name', '%' . db_like($keys) . '%', 'LIKE')
++      ->condition('status', 1);
+   }
+   $uids = $query
+     ->limit(15)
+diff --git a/modules/user/user.test b/modules/user/user.test
+index 92af9fa..123beee 100644
+--- a/modules/user/user.test
++++ b/modules/user/user.test
+@@ -2106,7 +2106,7 @@ class UserUserSearchTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+       'name' => 'User search',
+-      'description' => 'Testing that only user with the right permission can see the email address in the user search.',
++      'description' => 'Tests the user search page and verifies that sensitive information is hidden from unauthorized users.',
+       'group' => 'User',
+     );
+   }
+@@ -2126,11 +2126,29 @@ class UserUserSearchTestCase extends DrupalWebTestCase {
+     $edit = array('keys' => $keys);
+     $this->drupalPost('search/user/', $edit, t('Search'));
+     $this->assertText($keys);
++
++    // Create a blocked user.
++    $blocked_user = $this->drupalCreateUser();
++    $edit = array('status' => 0);
++    $blocked_user = user_save($blocked_user, $edit);
++
++    // Verify that users with "administer users" permissions can see blocked
++    // accounts in search results.
++    $edit = array('keys' => $blocked_user->name);
++    $this->drupalPost('search/user/', $edit, t('Search'));
++    $this->assertText($blocked_user->name, 'Blocked users are listed on the user search results for users with the "administer users" permission.');
++
++    // Verify that users without "administer users" permissions do not see
++    // blocked accounts in search results.
++    $this->drupalLogin($user1);
++    $edit = array('keys' => $blocked_user->name);
++    $this->drupalPost('search/user/', $edit, t('Search'));
++    $this->assertNoText($blocked_user->name, 'Blocked users are hidden from the user search results.');
++
+     $this->drupalLogout();
+   }
+ }
+ 
+-
+ /**
+  * Test role assignment.
+  */

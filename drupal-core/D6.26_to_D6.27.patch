@@ -1,0 +1,81 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index d0e6d64..428daf8 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 6.27, 2012-12-19
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2012-004.
++
+ Drupal 6.26, 2012-05-02
+ ----------------------
+ - Fixed a small number of bugs.
+diff --git a/includes/file.inc b/includes/file.inc
+index bbcf9dc..6f1bc22 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -403,6 +403,9 @@ function file_munge_filename($filename, $extensions, $alerts = TRUE) {
+ 
+   // Allow potentially insecure uploads for very savvy users and admin
+   if (!variable_get('allow_insecure_uploads', 0)) {
++    // Remove any null bytes. See http://php.net/manual/en/security.filesystem.nullbytes.php
++    $filename = str_replace(chr(0), '', $filename);
++
+     $whitelist = array_unique(explode(' ', trim($extensions)));
+ 
+     // Split the filename up by periods. The first part becomes the basename
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 31e6302..08d95bc 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.26');
++define('VERSION', '6.27');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/modules/upload/upload.module b/modules/upload/upload.module
+index 3a9e973..ee5b127 100644
+--- a/modules/upload/upload.module
++++ b/modules/upload/upload.module
+@@ -314,10 +314,10 @@ function upload_nodeapi(&$node, $op, $teaser = NULL) {
+       break;
+ 
+     case 'search result':
+-      return isset($node->files) && is_array($node->files) ? format_plural(count($node->files), '1 attachment', '@count attachments') : NULL;
++      return isset($node->files) && is_array($node->files) && user_access('view uploaded files') ? format_plural(count($node->files), '1 attachment', '@count attachments') : NULL;
+ 
+     case 'rss item':
+-      if (is_array($node->files)) {
++      if (is_array($node->files) && user_access('view uploaded files')) {
+         $files = array();
+         foreach ($node->files as $file) {
+           if ($file->list) {
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 406a669..7076226 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -599,14 +599,17 @@ function user_search($op = 'search', $keys = NULL, $skip_access_check = FALSE) {
+         // Replace wildcards with MySQL/PostgreSQL wildcards.
+         $keys = preg_replace('!\*+!', '%', $keys);
+         if (user_access('administer users')) {
+-          // Administrators can also search in the otherwise private email field.
++          // Administrators can also search in the otherwise private email
++          // field, and they don't need to be restricted to only active users.
+           $result = pager_query("SELECT name, uid, mail FROM {users} WHERE LOWER(name) LIKE LOWER('%%%s%%') OR LOWER(mail) LIKE LOWER('%%%s%%')", 15, 0, NULL, $keys, $keys);
+           while ($account = db_fetch_object($result)) {
+             $find[] = array('title' => $account->name .' ('. $account->mail .')', 'link' => url('user/'. $account->uid, array('absolute' => TRUE)));
+           }
+         }
+         else {
+-          $result = pager_query("SELECT name, uid FROM {users} WHERE LOWER(name) LIKE LOWER('%%%s%%')", 15, 0, NULL, $keys);
++          // Regular users can only search via user names, and we do not show
++          // them blocked accounts.
++          $result = pager_query("SELECT name, uid FROM {users} WHERE status = 1 AND LOWER(name) LIKE LOWER('%%%s%%')", 15, 0, NULL, $keys);
+           while ($account = db_fetch_object($result)) {
+             $find[] = array('title' => $account->name, 'link' => url('user/'. $account->uid, array('absolute' => TRUE)));
+           }
