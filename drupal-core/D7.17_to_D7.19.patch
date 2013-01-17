@@ -1,0 +1,226 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 94522f5..08acf95 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,3 +1,10 @@
++Drupal 7.19, 2013-01-16
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2013-001.
++
++Drupal 7.18, 2012-12-19
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2012-004.
+ 
+ Drupal 7.17, 2012-11-07
+ -----------------------
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index c9b17fe..53f70e1 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.17');
++define('VERSION', '7.19');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/file.inc b/includes/file.inc
+index 1e256c6..278be3d 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -1113,6 +1113,9 @@ function file_munge_filename($filename, $extensions, $alerts = TRUE) {
+ 
+   // Allow potentially insecure uploads for very savvy users and admin
+   if (!variable_get('allow_insecure_uploads', 0)) {
++    // Remove any null bytes. See http://php.net/manual/en/security.filesystem.nullbytes.php
++    $filename = str_replace(chr(0), '', $filename);
++
+     $whitelist = array_unique(explode(' ', trim($extensions)));
+ 
+     // Split the filename up by periods. The first part becomes the basename
+diff --git a/misc/collapse.js b/misc/collapse.js
+index bd51ce5..512ff2f 100644
+--- a/misc/collapse.js
++++ b/misc/collapse.js
+@@ -58,9 +58,9 @@ Drupal.behaviors.collapse = {
+     $('fieldset.collapsible', context).once('collapse', function () {
+       var $fieldset = $(this);
+       // Expand fieldset if there are errors inside, or if it contains an
+-      // element that is targeted by the URI fragment identifier. 
++      // element that is targeted by the URI fragment identifier.
+       var anchor = location.hash && location.hash != '#' ? ', ' + location.hash : '';
+-      if ($('.error' + anchor, $fieldset).length) {
++      if ($fieldset.find('.error' + anchor).length) {
+         $fieldset.removeClass('collapsed');
+       }
+ 
+diff --git a/misc/drupal.js b/misc/drupal.js
+index 83b0884..643baa1 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -7,6 +7,27 @@ jQuery.noConflict();
+ (function ($) {
+ 
+ /**
++ * Override jQuery.fn.init to guard against XSS attacks.
++ *
++ * See http://bugs.jquery.com/ticket/9521
++ */
++var jquery_init = $.fn.init;
++$.fn.init = function (selector, context, rootjQuery) {
++  // If the string contains a "#" before a "<", treat it as invalid HTML.
++  if (selector && typeof selector === 'string') {
++    var hash_position = selector.indexOf('#');
++    if (hash_position >= 0) {
++      var bracket_position = selector.indexOf('<');
++      if (bracket_position > hash_position) {
++        throw 'Syntax error, unrecognized expression: ' + selector;
++      }
++    }
++  }
++  return jquery_init.call(this, selector, context, rootjQuery);
++};
++$.fn.init.prototype = jquery_init.prototype;
++
++/**
+  * Attach all registered behaviors to a page element.
+  *
+  * Behaviors are event-triggered actions that attach to page elements, enhancing
+diff --git a/misc/vertical-tabs.js b/misc/vertical-tabs.js
+index 14d0660..ebfaa4f 100644
+--- a/misc/vertical-tabs.js
++++ b/misc/vertical-tabs.js
+@@ -50,8 +50,8 @@ Drupal.behaviors.verticalTabs = {
+       if (!tab_focus) {
+         // If the current URL has a fragment and one of the tabs contains an
+         // element that matches the URL fragment, activate that tab.
+-        if (window.location.hash && $(window.location.hash, this).length) {
+-          tab_focus = $(window.location.hash, this).closest('.vertical-tabs-pane');
++        if (window.location.hash && $(this).find(window.location.hash).length) {
++          tab_focus = $(this).find(window.location.hash).closest('.vertical-tabs-pane');
+         }
+         else {
+           tab_focus = $('> .vertical-tabs-pane:first', this);
+diff --git a/modules/book/book.pages.inc b/modules/book/book.pages.inc
+index 583eb7a..63a1d15 100644
+--- a/modules/book/book.pages.inc
++++ b/modules/book/book.pages.inc
+@@ -38,6 +38,15 @@ function book_render() {
+  *   format determined by the $type parameter.
+  */
+ function book_export($type, $nid) {
++  // Check that the node exists and that the current user has access to it.
++  $node = node_load($nid);
++  if (!$node) {
++    return MENU_NOT_FOUND;
++  }
++  if (!node_access('view', $node)) {
++    return MENU_ACCESS_DENIED;
++  }
++
+   $type = drupal_strtolower($type);
+ 
+   $export_function = 'book_export_' . $type;
+diff --git a/modules/book/book.test b/modules/book/book.test
+index d1f5273..2708e36 100644
+--- a/modules/book/book.test
++++ b/modules/book/book.test
+@@ -258,6 +258,13 @@ class BookTestCase extends DrupalWebTestCase {
+     // Try getting the URL directly, and verify it fails.
+     $this->drupalGet('book/export/html/' . $this->book->nid);
+     $this->assertResponse('403', t('Anonymous user properly forbidden.'));
++
++    // Now grant anonymous users permission to view the printer-friendly
++    // version and verify that node access restrictions still prevent them from
++    // seeing it.
++    user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('access printer-friendly version'));
++    $this->drupalGet('book/export/html/' . $this->book->nid);
++    $this->assertResponse('403', 'Anonymous user properly forbidden from seeing the printer-friendly version when denied by node access.');
+   }
+ 
+   /**
+diff --git a/modules/image/image.module b/modules/image/image.module
+index ff50452..07f4892 100644
+--- a/modules/image/image.module
++++ b/modules/image/image.module
+@@ -292,7 +292,8 @@ function image_file_download($uri) {
+     if ($info = image_get_info($uri)) {
+       // Check the permissions of the original to grant access to this image.
+       $headers = module_invoke_all('file_download', $original_uri);
+-      if (!in_array(-1, $headers)) {
++      // Confirm there's at least one module granting access and none denying access.
++      if (!empty($headers) && !in_array(-1, $headers)) {
+         return array(
+           // Send headers describing the image's size, and MIME-type...
+           'Content-Type' => $info['mime_type'],
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 2c02f8c..622fe4d 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -933,14 +933,18 @@ function user_search_execute($keys = NULL, $conditions = NULL) {
+   $query = db_select('users')->extend('PagerDefault');
+   $query->fields('users', array('uid'));
+   if (user_access('administer users')) {
+-    // Administrators can also search in the otherwise private email field.
++    // Administrators can also search in the otherwise private email field,
++    // and they don't need to be restricted to only active users.
+     $query->fields('users', array('mail'));
+     $query->condition(db_or()->
+       condition('name', '%' . db_like($keys) . '%', 'LIKE')->
+       condition('mail', '%' . db_like($keys) . '%', 'LIKE'));
+   }
+   else {
+-    $query->condition('name', '%' . db_like($keys) . '%', 'LIKE');
++    // Regular users can only search via usernames, and we do not show them
++    // blocked accounts.
++    $query->condition('name', '%' . db_like($keys) . '%', 'LIKE')
++      ->condition('status', 1);
+   }
+   $uids = $query
+     ->limit(15)
+diff --git a/modules/user/user.test b/modules/user/user.test
+index 92af9fa..123beee 100644
+--- a/modules/user/user.test
++++ b/modules/user/user.test
+@@ -2106,7 +2106,7 @@ class UserUserSearchTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+       'name' => 'User search',
+-      'description' => 'Testing that only user with the right permission can see the email address in the user search.',
++      'description' => 'Tests the user search page and verifies that sensitive information is hidden from unauthorized users.',
+       'group' => 'User',
+     );
+   }
+@@ -2126,11 +2126,29 @@ class UserUserSearchTestCase extends DrupalWebTestCase {
+     $edit = array('keys' => $keys);
+     $this->drupalPost('search/user/', $edit, t('Search'));
+     $this->assertText($keys);
++
++    // Create a blocked user.
++    $blocked_user = $this->drupalCreateUser();
++    $edit = array('status' => 0);
++    $blocked_user = user_save($blocked_user, $edit);
++
++    // Verify that users with "administer users" permissions can see blocked
++    // accounts in search results.
++    $edit = array('keys' => $blocked_user->name);
++    $this->drupalPost('search/user/', $edit, t('Search'));
++    $this->assertText($blocked_user->name, 'Blocked users are listed on the user search results for users with the "administer users" permission.');
++
++    // Verify that users without "administer users" permissions do not see
++    // blocked accounts in search results.
++    $this->drupalLogin($user1);
++    $edit = array('keys' => $blocked_user->name);
++    $this->drupalPost('search/user/', $edit, t('Search'));
++    $this->assertNoText($blocked_user->name, 'Blocked users are hidden from the user search results.');
++
+     $this->drupalLogout();
+   }
+ }
+ 
+-
+ /**
+  * Test role assignment.
+  */
