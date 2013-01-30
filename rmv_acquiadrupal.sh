@@ -1,6 +1,4 @@
-#Script removes drupal packing script info from core module and theme info files. 
-# run on older version of drupal, BEFORE applying patches.  
-# This does not remove Acquia Drupal packing information.
+# Script sets IS ACQUIA DRUPAL to FALSE
 #
 # must: chmod +x ~/rmv_acquiadrupal.sh (makes executable)
 #

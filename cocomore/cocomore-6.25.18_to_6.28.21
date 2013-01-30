@@ -1,0 +1,1779 @@
+diff --git a/CHANGELOG.cocomore.txt b/CHANGELOG.cocomore.txt
+index e7e3047..22c8a50 100644
+--- a/CHANGELOG.cocomore.txt
++++ b/CHANGELOG.cocomore.txt
+@@ -1,3 +1,20 @@
++cdc-6.28.21, 2013-01-29
++-----------------------
++[        ] asaal, kfritsche: Fixed version update issue
++
++cdc-6.28.20, 2013-01-23
++-----------------------
++[        ] asaal: merged Drupal 6.28
++                  http://drupal.org/node/1890580
++[        ] kfritsche: updated SimpleTest Module
++
++cdc-6.26.19, 2012-05-03
++-----------------------
++[        ] mkalkbrenner: merged Drupal 6.26
++                         http://drupal.org/node/1558054
++
++
++
+ cdc-6.25.18, 2012-03-12
+ -----------------------
+ [        ] mkalkbrenner: merged Drupal 6.25
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index c244168..fa1fd02 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,17 @@
+ 
++Drupal 6.28, 2013-01-16
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-001.
++
++Drupal 6.27, 2012-12-19
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2012-004.
++
++Drupal 6.26, 2012-05-02
++----------------------
++- Fixed a small number of bugs.
++- Made code documentation improvements.
++
+ Drupal 6.25, 2012-02-29
+ ----------------------
+ - Fixed regressions introduced in Drupal 6.24 only.
+diff --git a/COPYRIGHT.txt b/COPYRIGHT.txt
+index 94bfd61..89cc880 100644
+--- a/COPYRIGHT.txt
++++ b/COPYRIGHT.txt
+@@ -1,5 +1,4 @@
+-
+-All Drupal code is Copyright 2001 - 2010 by the original authors.
++All Drupal code is Copyright 2001 - 2012 by the original authors.
+ 
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+@@ -20,5 +19,11 @@ Drupal includes works under other copyright notices and distributed
+ according to the terms of the GNU General Public License or a compatible
+ license, including:
+ 
+-  jQuery - Copyright (c) 2008 - 2009 John Resig
++Javascript
++
++  Farbtastic - Copyright (c) 2007 Matt Farina
++
++  jQuery - Copyright (c) 2008 John Resig
++
++  jQuery Form - Copyright (c) 2007 Mike Alsup
+ 
+diff --git a/MAINTAINERS.txt b/MAINTAINERS.txt
+index 9c09f88..da831f9 100644
+--- a/MAINTAINERS.txt
++++ b/MAINTAINERS.txt
+@@ -57,7 +57,7 @@ M: Sammy Spets <sammys-drupal@synerger.com>
+ S: maintained
+ 
+ SECURITY COORDINATOR
+-M: Heine Deelstra <hdeelstra@gmail.com>
++M: Greg Knaddison <http://drupal.org/user/36762>
+ S: maintained
+ 
+ STATISTICS MODULE
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 9fb5f17..f61a6cd 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -5,6 +5,9 @@
+  * Functions that need to be loaded on every Drupal request.
+  */
+ 
++/**
++ * Indicates compatibility to Cocomore Drupal Core
++ */
+ define('COCOMORE_DRUPAL_CORE', 1);
+ 
+ /**
+@@ -413,7 +416,7 @@ function conf_init() {
+     include_once './'. conf_path() .'/settings.php';
+   }
+ 
+-  // Ignore the placeholder url from default.settings.php.
++  // Ignore the placeholder URL from default.settings.php.
+   if (isset($db_url) && $db_url == 'mysql://username:password@localhost/databasename') {
+     $db_url = '';
+   }
+@@ -456,7 +459,7 @@ function conf_init() {
+   }
+   else {
+     // Otherwise use $base_url as session name, without the protocol
+-    // to use the same session identifiers across http and https.
++    // to use the same session identifiers across HTTP and HTTPS.
+     list( , $session_name) = explode('://', $base_url, 2);
+     // We escape the hostname because it can be modified by a visitor.
+     if (!empty($_SERVER['HTTP_HOST'])) {
+diff --git a/includes/cache.inc b/includes/cache.inc
+index c6c1861..e62a218 100644
+--- a/includes/cache.inc
++++ b/includes/cache.inc
+@@ -9,11 +9,13 @@
+  * @param $table
+  *   The table $table to store the data in. Valid core values are 'cache_filter',
+  *   'cache_menu', 'cache_page', or 'cache' for the default cache.
++ *
++ *   @see cache_set()
+  */
+ function cache_get($cid, $table = 'cache') {
+   global $user;
+ 
+-  // cocomore: let cron do such an expensive job
++  // mkalkbrenner: let cron do such an expensive job
+   if (!variable_get('cache_flush_cron', 1)) {
+     // Garbage collection necessary when enforcing a minimum cache lifetime
+     $cache_flush = variable_get('cache_flush_'. $table, 0);
+@@ -41,7 +43,7 @@ function cache_get($cid, $table = 'cache') {
+     // cache timer. The cache variable is loaded into the $user object by
+     // sess_read() in session.inc.
+     else {
+-      // cocomore: don't deliver expired cache entries
++      // mkalkbrenner: don't deliver expired cache entries
+       if ((isset($user->cache) && $user->cache > $cache->created) || (CACHE_TEMPORARY != $cache->expire && time() > $cache->expire)) {
+         // This cache data is too old and thus not valid for us, ignore it.
+         return 0;
+@@ -58,7 +60,6 @@ function cache_get($cid, $table = 'cache') {
+   return 0;
+ }
+ 
+-
+ /**
+  * Store data in the persistent cache.
+  *
+@@ -102,6 +103,8 @@ function cache_get($cid, $table = 'cache') {
+  *     the given time, after which it behaves like CACHE_TEMPORARY.
+  * @param $headers
+  *   A string containing HTTP header information for cached pages.
++ *
++ *   @see cache_get()
+  */
+ function cache_set($cid, $data, $table = 'cache', $expire = CACHE_PERMANENT, $headers = NULL) {
+   global $db_type;
+diff --git a/includes/common.inc b/includes/common.inc
+index c3679e6..d5569ab 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -169,7 +169,7 @@ function drupal_final_markup($content) {
+  * Add a feed URL for the current page.
+  *
+  * @param $url
+- *   A url for the feed.
++ *   A URL for the feed.
+  * @param $title
+  *   The title of the feed.
+  */
+@@ -289,13 +289,16 @@ function drupal_get_destination() {
+  * statement in your menu callback.
+  *
+  * @param $path
+- *   A Drupal path or a full URL.
++ *   (optional) A Drupal path or a full URL, which will be passed to url() to
++ *   compute the redirect for the URL.
+  * @param $query
+- *   A query string component, if any.
++ *   (optional) A URL-encoded query string to append to the link, or an array of
++ *   query key/value-pairs without any URL-encoding. Passed to url().
+  * @param $fragment
+- *   A destination fragment identifier (named anchor).
++ *   (optional) A destination fragment identifier (named anchor).
+  * @param $http_response_code
+- *   Valid values for an actual "goto" as per RFC 2616 section 10.3 are:
++ *   (optional) The HTTP status code to use for the redirection, defaults to
++ *   302. Valid values for an actual "goto" as per RFC 2616 section 10.3 are:
+  *   - 301 Moved Permanently (the recommended value for most redirects)
+  *   - 302 Found (default in Drupal and PHP, sometimes used for spamming search
+  *         engines)
+@@ -523,7 +526,7 @@ function drupal_http_request($url, $headers = array(), $method = 'GET', $data =
+     $defaults['Content-Length'] = 'Content-Length: '. $content_length;
+   }
+ 
+-  // If the server url has a user then attempt to use basic authentication
++  // If the server URL has a user then attempt to use basic authentication
+   if (isset($uri['user'])) {
+     $defaults['Authorization'] = 'Authorization: Basic '. base64_encode($uri['user'] . (!empty($uri['pass']) ? ":". $uri['pass'] : ''));
+   }
+@@ -549,15 +552,33 @@ function drupal_http_request($url, $headers = array(), $method = 'GET', $data =
+ 
+   $result->request = $request;
+ 
+-  fwrite($fp, $request);
++  // Calculate how much time is left of the original timeout value.
++  $time_left = $timeout - timer_read(__FUNCTION__) / 1000;
++  if ($time_left > 0) {
++    stream_set_timeout($fp, floor($time_left), floor(1000000 * fmod($time_left, 1)));
++    fwrite($fp, $request);
++  }
+ 
+   // Fetch response.
+-  $response = stream_get_contents($fp);
+-
++  $response = '';
++  while (!feof($fp)) {
++    // Calculate how much time is left of the original timeout value.
++    $time_left = $timeout - timer_read(__FUNCTION__) / 1000;
++    if ($time_left <= 0) {
++      $result->code = HTTP_REQUEST_TIMEOUT;
++      $result->error = 'request timed out';
++      return $result;
++    }
++    stream_set_timeout($fp, floor($time_left), floor(1000000 * fmod($time_left, 1)));
++    $chunk = fread($fp, 1024);
++    $response .= $chunk;
++  }
+   fclose($fp);
+ 
+-  // Parse response.
+-  list($split, $result->data) = explode("\r\n\r\n", $response, 2);
++  // Parse response headers from the response body.
++  // Be tolerant of malformed HTTP responses that separate header and body with
++  // \n\n or \r\r instead of \r\n\r\n.  See http://drupal.org/node/183435
++  list($split, $result->data) = preg_split("/\r\n\r\n|\n\n|\r\r/", $response, 2);
+   $split = preg_split("/\r\n|\n|\r/", $split);
+ 
+   list($protocol, $code, $status_message) = explode(' ', trim(array_shift($split)), 3);
+@@ -639,7 +660,7 @@ function drupal_error_handler($errno, $message, $filename, $line, $context) {
+ 
+   // drupal core uses E_ALL ^ E_DEPRECATED ^ E_NOTICE
+   // pressflow uses E_ALL ^ E_DEPRECATED
+-  // cocomore core uses drupal core's filter as default but offers a variable to configure the filter
++  // modified d6 uses drupal core's filter as default but offers a variable to configure the filter
+   if ($errno & variable_get('error_handler_errno_filter', E_ALL ^ E_DEPRECATED ^ E_NOTICE)) {
+     $types = array(1 => 'error', 2 => 'warning', 4 => 'parse error', 8 => 'notice', 16 => 'core error', 32 => 'core warning', 64 => 'compile error', 128 => 'compile warning', 256 => 'user error', 512 => 'user warning', 1024 => 'user notice', 2048 => 'strict warning', 4096 => 'recoverable fatal error');
+ 
+@@ -928,7 +949,7 @@ function t($string, $args = array(), $langcode = NULL) {
+     $string = $custom_strings[$langcode][$string];
+   }
+   // Translate with locale module if enabled.
+-  elseif ($langcode != 'en' && function_exists('locale')) {
++  elseif (function_exists('locale') && $langcode != 'en') {
+     $string = locale($string, $langcode);
+   }
+   if (empty($args)) {
+@@ -1400,8 +1421,9 @@ function format_date($timestamp, $type = 'medium', $format = '', $timezone = NUL
+  * alternative than url().
+  *
+  * @param $path
+- *   The internal path or external URL being linked to, such as "node/34" or
+- *   "http://example.com/foo". A few notes:
++ *   (optional) The internal path or external URL being linked to, such as
++ *   "node/34" or "http://example.com/foo". The default value is equivalent to
++ *   passing in '<front>'. A few notes:
+  *   - If you provide a full URL, it will be considered an external URL.
+  *   - If you provide only the path (e.g. "node/34"), it will be
+  *     considered an internal link. In this case, it should be a system URL,
+@@ -1417,7 +1439,8 @@ function format_date($timestamp, $type = 'medium', $format = '', $timezone = NUL
+  *     include them in $path, or use $options['query'] to let this function
+  *     URL encode them.
+  * @param $options
+- *   An associative array of additional options, with the following elements:
++ *   (optional) An associative array of additional options, with the following
++ *   elements:
+  *   - 'query': A URL-encoded query string to append to the link, or an array of
+  *     query key/value-pairs without any URL-encoding.
+  *   - 'fragment': A fragment identifier (named anchor) to append to the URL.
+@@ -1569,6 +1592,14 @@ function drupal_attributes($attributes = array()) {
+  * internal links output by modules should be generated by this function if
+  * possible.
+  *
++ * However, for links enclosed in translatable text you should use t() and
++ * embed the HTML anchor tag directly in the translated string. For example:
++ * @code
++ * t('Visit the <a href="@url">settings</a> page', array('@url' => url('admin')));
++ * @endcode
++ * This keeps the context of the link title ('settings' in the example) for
++ * translators.
++ *
+  * @param $text
+  *   The link text for the anchor tag.
+  * @param $path
+@@ -1639,7 +1670,7 @@ function drupal_page_footer() {
+     page_set_cache();
+   }
+ 
+-  // cocomore: send content to browser now
++  // mkalkbrenner: send content to browser now
+   flush();
+ 
+   module_invoke_all('exit');
+@@ -2538,8 +2569,8 @@ function drupal_to_js($var) {
+  *   (optional) If set, the variable will be converted to JSON and output.
+  */
+ function drupal_json($var = NULL) {
+-  // We are returning JavaScript, so tell the browser.
+-  drupal_set_header('Content-Type: text/javascript; charset=utf-8');
++  // We are returning JSON, so tell the browser.
++  drupal_set_header('Content-Type: application/json');
+ 
+   if (isset($var)) {
+     echo drupal_to_js($var);
+@@ -3840,7 +3871,7 @@ function drupal_flush_all_caches() {
+  * Changes the character added to all css/js files as dummy query-string,
+  * so that all browsers are forced to reload fresh files. We keep
+  * 20 characters history (FIFO) to avoid repeats, but only the first
+- * (newest) character is actually used on urls, to keep them short.
++ * (newest) character is actually used on URLs, to keep them short.
+  * This is also called from update.php.
+  */
+ function _drupal_flush_css_js() {
+diff --git a/includes/database.inc b/includes/database.inc
+index ce7170a..01fdf89 100644
+--- a/includes/database.inc
++++ b/includes/database.inc
+@@ -138,6 +138,7 @@ function db_set_active($name = 'default') {
+   }
+ 
+   if (!isset($db_conns[$real_name])) {
++
+     // Initiate a new connection, using the named DB URL specified.
+     if (is_array($db_url)) {
+       $connect_url = array_key_exists($name, $db_url) ? $db_url[$name] : $db_url['default'];
+@@ -716,37 +717,37 @@ function db_ignore_slave() {
+ }
+ 
+ 
+-function db_smart_replicant_switch($query, $slave) {
+-  static $stay_at_master = FALSE;
+-  global $user, $active_slave_db;
+-
+-  if (variable_get('db_replication_smart_replicant_switch', FALSE)) {
+-    // admin should never use replicant database but anonymous users in general. authenticated users are configurable
+-    if (!$stay_at_master && is_object($user) && 1 != $user->uid && (0 == $user->uid || !variable_get('db_replication_keep_authenticated_users_on_master', TRUE))) {
+-      // with some exceptions
+-      if (stripos($query, 'sessions') === FALSE /* avoid replication drift for session data */
+-          && stripos($query, 'semaphore') === FALSE /* avoid replication drift for semaphore data */
+-          && stripos($query, 'SELECT') === 0 /* only read access to replicant */
+-          && stripos($query, 'LOCK') === FALSE /* send SELECT ... LOCK IN SHARE MODE to master */
+-          && stripos($query, 'UPDATE') === FALSE /* send SELECT ... FOR UPDATE to master */
+-          && stripos($query, 'LAST_INSERT_ID') === FALSE /* send SELECT LAST_INSERT_ID() to master */
+-          && (variable_get('db_replication_read_caches_from_slave', FALSE) || (!variable_get('db_replication_read_caches_from_slave', FALSE) && stripos($query, 'cache') === FALSE))  /* avoid replication drift for cached data (configurable) */
+-      ) {
+-        return TRUE;
+-      }
+-      else if (preg_match("/\bLOCK\b/i", $query) /* LOCK TABLE ... and SELECT ... LOCK IN SHARE MODE */
+-          || preg_match("/\bFOR\s+UPDATE\b/i", $query) /* SELECT ... FOR UPDATE */
+-          || stripos($query, 'BEGIN') === 0 /* stay on master for transactions */
+-          || stripos($query, 'START') === 0 /* stay on master for transactions */
+-      ) {
+-        // stay at master for next queries
+-        $stay_at_master = TRUE;
+-      }
+-    }
+-  }
+-  else if (isset($active_slave_db) && $slave) {
+-    return TRUE;
+-  }
+-
+-  return FALSE;
+-}
++function db_smart_replicant_switch($query, $slave) {
++  static $stay_at_master = FALSE;
++  global $user, $active_slave_db;
++
++  if (variable_get('db_replication_smart_replicant_switch', FALSE)) {
++    // admin should never use replicant database but anonymous users in general. authenticated users are configurable
++    if (!$stay_at_master && is_object($user) && 1 != $user->uid && (0 == $user->uid || !variable_get('db_replication_keep_authenticated_users_on_master', TRUE))) {
++      // with some exceptions
++      if (stripos($query, 'sessions') === FALSE /* avoid replication drift for session data */
++          && stripos($query, 'semaphore') === FALSE /* avoid replication drift for semaphore data */
++          && stripos($query, 'SELECT') === 0 /* only read access to replicant */
++          && stripos($query, 'LOCK') === FALSE /* send SELECT ... LOCK IN SHARE MODE to master */
++          && stripos($query, 'UPDATE') === FALSE /* send SELECT ... FOR UPDATE to master */
++          && stripos($query, 'LAST_INSERT_ID') === FALSE /* send SELECT LAST_INSERT_ID() to master */
++          && (variable_get('db_replication_read_caches_from_slave', FALSE) || (!variable_get('db_replication_read_caches_from_slave', FALSE) && stripos($query, 'cache') === FALSE))  /* avoid replication drift for cached data (configurable) */
++      ) {
++        return TRUE;
++      }
++      else if (preg_match("/\bLOCK\b/i", $query) /* LOCK TABLE ... and SELECT ... LOCK IN SHARE MODE */
++          || preg_match("/\bFOR\s+UPDATE\b/i", $query) /* SELECT ... FOR UPDATE */
++          || stripos($query, 'BEGIN') === 0 /* stay on master for transactions */
++          || stripos($query, 'START') === 0 /* stay on master for transactions */
++      ) {
++        // stay at master for next queries
++        $stay_at_master = TRUE;
++      }
++    }
++  }
++  else if (isset($active_slave_db) && $slave) {
++    return TRUE;
++  }
++
++  return FALSE;
++}
+diff --git a/includes/database.mysql-common.inc b/includes/database.mysql-common.inc
+index 413b5aa..3d9dfeb 100644
+--- a/includes/database.mysql-common.inc
++++ b/includes/database.mysql-common.inc
+@@ -26,8 +26,9 @@
+  *   and TRUE values to decimal 1.
+  *
+  * @return
+- *   A database query result resource, or FALSE if the query was not
+- *   executed correctly.
++ *   Successful SELECT, SHOW, DESCRIBE, EXPLAIN, or other queries which return a
++ *   set of results will return a database query result resource. Other
++ *   successful queries will return TRUE and failing queries will return FALSE.
+  */
+ function db_query($query) {
+   $args = func_get_args();
+@@ -89,7 +90,7 @@ function db_create_table_sql($name, $table) {
+ 
+   $sql .= $table['mysql_suffix'];
+ 
+-  // cocomore: use InnoDB as engine. If it's not available MySQL falls back to MyISAM.
++  // mkalkbrenner: use InnoDB as engine. If it's not available MySQL falls back to MyISAM.
+   if (stripos($table['mysql_suffix'], 'ENGINE') === FALSE) {
+     $sql .= ' ENGINE=InnoDB';
+   }
+diff --git a/includes/database.mysql.inc b/includes/database.mysql.inc
+index 29ffa80..d9440e9 100644
+--- a/includes/database.mysql.inc
++++ b/includes/database.mysql.inc
+@@ -55,9 +55,9 @@ function db_connect($url, $fallback_to_master = FALSE) {
+     _db_error_page('Unable to use the MySQL database because the MySQL extension for PHP is not installed. Check your <code>php.ini</code> to see how you can enable it.');
+   }
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   $url['user'] = urldecode($url['user']);
+-  // Test if database url has a password.
++  // Test if database URL has a password.
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+   $url['path'] = urldecode($url['path']);
+@@ -227,7 +227,7 @@ function db_fetch_array($result) {
+  *
+  * @param $result
+  *   A database query result resource, as returned from db_query().
+- * 
++ *
+  * @return
+  *   The resulting field or FALSE.
+  */
+@@ -350,9 +350,9 @@ function db_query_range_slave($query) {
+ /**
+  * Runs a SELECT query and stores its results in a temporary table.
+  *
+- * Use this as a substitute for db_query() when the results need to stored
+- * in a temporary table. Temporary tables exist for the duration of the page
+- * request.
++ * Use this as a substitute for db_query() when the results need to be stored
++ * in a temporary table.
++ *
+  * User-supplied arguments to the query should be passed in as separate parameters
+  * so that they can be properly escaped to avoid SQL injection attacks.
+  *
+@@ -371,10 +371,10 @@ function db_query_range_slave($query) {
+  *
+  *   NOTE: using this syntax will cast NULL and FALSE values to decimal 0,
+  *   and TRUE values to decimal 1.
+- *
+  * @param $table
+  *   The name of the temporary table to select into. This name will not be
+  *   prefixed as there is no risk of collision.
++ *
+  * @return
+  *   A database query result resource, or FALSE if the query was not executed
+  *   correctly.
+diff --git a/includes/database.mysqli.inc b/includes/database.mysqli.inc
+index b22d92e..9a3ea72 100644
+--- a/includes/database.mysqli.inc
++++ b/includes/database.mysqli.inc
+@@ -61,9 +61,9 @@ function db_connect($url, $fallback_to_master = FALSE) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   $url['user'] = urldecode($url['user']);
+-  // Test if database url has a password.
++  // Test if database URL has a password.
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+   $url['path'] = urldecode($url['path']);
+@@ -350,9 +350,9 @@ function db_query_range_slave($query) {
+ /**
+  * Runs a SELECT query and stores its results in a temporary table.
+  *
+- * Use this as a substitute for db_query() when the results need to stored
+- * in a temporary table. Temporary tables exist for the duration of the page
+- * request.
++ * Use this as a substitute for db_query() when the results need to be stored
++ * in a temporary table.
++ *
+  * User-supplied arguments to the query should be passed in as separate parameters
+  * so that they can be properly escaped to avoid SQL injection attacks.
+  *
+@@ -371,10 +371,10 @@ function db_query_range_slave($query) {
+  *
+  *   NOTE: using this syntax will cast NULL and FALSE values to decimal 0,
+  *   and TRUE values to decimal 1.
+- *
+  * @param $table
+  *   The name of the temporary table to select into. This name will not be
+  *   prefixed as there is no risk of collision.
++ *
+  * @return
+  *   A database query result resource, or FALSE if the query was not executed
+  *   correctly.
+diff --git a/includes/database.pgsql.inc b/includes/database.pgsql.inc
+index 7b6552d..ff2048b 100644
+--- a/includes/database.pgsql.inc
++++ b/includes/database.pgsql.inc
+@@ -52,7 +52,7 @@ function db_connect($url, $fallback_to_master = FALSE) {
+   $url = parse_url($url);
+   $conn_string = '';
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   if (isset($url['user'])) {
+     $conn_string .= ' user='. urldecode($url['user']);
+   }
+@@ -350,9 +350,9 @@ function db_query_range_slave($query) {
+ /**
+  * Runs a SELECT query and stores its results in a temporary table.
+  *
+- * Use this as a substitute for db_query() when the results need to stored
+- * in a temporary table. Temporary tables exist for the duration of the page
+- * request.
++ * Use this as a substitute for db_query() when the results need to be stored
++ * in a temporary table.
++ *
+  * User-supplied arguments to the query should be passed in as separate parameters
+  * so that they can be properly escaped to avoid SQL injection attacks.
+  *
+@@ -371,10 +371,10 @@ function db_query_range_slave($query) {
+  *
+  *   NOTE: using this syntax will cast NULL and FALSE values to decimal 0,
+  *   and TRUE values to decimal 1.
+- *
+  * @param $table
+  *   The name of the temporary table to select into. This name will not be
+  *   prefixed as there is no risk of collision.
++ *
+  * @return
+  *   A database query result resource, or FALSE if the query was not executed
+  *   correctly.
+diff --git a/includes/file.inc b/includes/file.inc
+index fc12395..0da717c 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -441,6 +441,9 @@ function file_munge_filename($filename, $extensions, $alerts = TRUE) {
+ 
+   // Allow potentially insecure uploads for very savvy users and admin
+   if (!variable_get('allow_insecure_uploads', 0)) {
++    // Remove any null bytes. See http://php.net/manual/en/security.filesystem.nullbytes.php
++    $filename = str_replace(chr(0), '', $filename);
++
+     $whitelist = array_unique(explode(' ', trim($extensions)));
+ 
+     // Split the filename up by periods. The first part becomes the basename
+@@ -900,7 +903,7 @@ function file_transfer($source, $headers) {
+   }
+ 
+   // IE cannot download private files because it cannot store files downloaded
+-  // over https in the browser cache. The problem can be solved by sending
++  // over HTTPS in the browser cache. The problem can be solved by sending
+   // custom headers to IE. See http://support.microsoft.com/kb/323308/en-us
+   if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on')) {
+     drupal_set_header('Cache-Control: private');
+diff --git a/includes/form.inc b/includes/form.inc
+index 0736493..11445b4 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -41,8 +41,8 @@
+  *
+  * For information on the format of the structured arrays used to define forms,
+  * and more detailed explanations of the Form API workflow, see the
+- * @link http://api.drupal.org/api/file/developer/topics/forms_api_reference.html/6 reference @endlink
+- * and the @link http://drupal.org/node/204270 Form API guide. @endlink
++ * @link forms_api_reference.html reference @endlink and the
++ * @link http://drupal.org/node/204270 Form API guide. @endlink
+  */
+ 
+ /**
+@@ -305,6 +305,11 @@ function drupal_execute($form_id, &$form_state) {
+   
+   $form = call_user_func_array('drupal_retrieve_form', $args);
+   $form['#post'] = $form_state['values'];
++
++  // Reset form validation.
++  $form_state['must_validate'] = TRUE;
++  form_set_error(NULL, '', TRUE);
++
+   drupal_prepare_form($form_id, $form, $form_state);
+   drupal_process_form($form_id, $form, $form_state);
+ }
+@@ -575,7 +580,7 @@ function drupal_prepare_form($form_id, &$form, &$form_state) {
+ function drupal_validate_form($form_id, $form, &$form_state) {
+   static $validated_forms = array();
+ 
+-  if (isset($validated_forms[$form_id])) {
++  if (isset($validated_forms[$form_id]) && empty($form_state['must_validate'])) {
+     return;
+   }
+ 
+@@ -1837,7 +1842,7 @@ function form_expand_ahah($element) {
+     if (is_string($ahah_binding['progress'])) {
+       $ahah_binding['progress'] = array('type' => $ahah_binding['progress']);
+     }
+-    // Change progress path to a full url.
++    // Change progress path to a full URL.
+     if (isset($ahah_binding['progress']['path'])) {
+       $ahah_binding['progress']['url'] = url($ahah_binding['progress']['path']);
+     }
+@@ -2437,7 +2442,7 @@ function form_clean_id($id = NULL, $flush = FALSE) {
+  * clean code independence, ensuring that several batches submitted by
+  * different parts of the code (core / contrib modules) can be processed
+  * correctly while not interfering or having to cope with each other. Each
+- * batch set gets to specify his own UI messages, operates on its own set
++ * batch set gets to specify its own UI messages, operates on its own set
+  * of operations and results, and triggers its own 'finished' callback.
+  * Batch sets are processed sequentially, with the progress bar starting
+  * fresh for every new set.
+diff --git a/includes/install.mysql.inc b/includes/install.mysql.inc
+index e544294..73aa365 100644
+--- a/includes/install.mysql.inc
++++ b/includes/install.mysql.inc
+@@ -26,7 +26,7 @@ function drupal_test_mysql($url, &$success) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string.
++  // Decode urlencoded information in the db connection string.
+   $url['user'] = urldecode($url['user']);
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+diff --git a/includes/install.mysqli.inc b/includes/install.mysqli.inc
+index 8920d01..0080804 100644
+--- a/includes/install.mysqli.inc
++++ b/includes/install.mysqli.inc
+@@ -26,7 +26,7 @@ function drupal_test_mysqli($url, &$success) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string.
++  // Decode urlencoded information in the db connection string.
+   $url['user'] = urldecode($url['user']);
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+diff --git a/includes/install.pgsql.inc b/includes/install.pgsql.inc
+index fde97a3..5c2c21d 100644
+--- a/includes/install.pgsql.inc
++++ b/includes/install.pgsql.inc
+@@ -27,7 +27,7 @@ function drupal_test_pgsql($url, &$success) {
+   $url = parse_url($url);
+   $conn_string = '';
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   if (isset($url['user'])) {
+     $conn_string .= ' user='. urldecode($url['user']);
+   }
+diff --git a/includes/locale.inc b/includes/locale.inc
+index 3330428..f62ed12 100644
+--- a/includes/locale.inc
++++ b/includes/locale.inc
+@@ -1293,14 +1293,11 @@ function _locale_import_one_string($op, $value = NULL, $mode = NULL, $lang = NUL
+           // data untouched or if we don't have an existing plural formula.
+           $header = _locale_import_parse_header($value['msgstr']);
+ 
+-          // Get the plural formula and update in database.
++          // Get and store the plural formula if available.
+           if (isset($header["Plural-Forms"]) && $p = _locale_import_parse_plural_forms($header["Plural-Forms"], $file->filename)) {
+             list($nplurals, $plural) = $p;
+             db_query("UPDATE {languages} SET plurals = %d, formula = '%s' WHERE language = '%s'", $nplurals, $plural, $lang);
+           }
+-          else {
+-            db_query("UPDATE {languages} SET plurals = %d, formula = '%s' WHERE language = '%s'", 0, '', $lang);
+-          }
+         }
+         $headerdone = TRUE;
+       }
+@@ -2203,6 +2200,7 @@ function _locale_rebuild_js($langcode = NULL) {
+     // Save the file.
+     if (file_save_data($data, $dest)) {
+       $language->javascript = $data_hash;
++      $status = ($status == 'deleted') ? 'updated' : ($changed_hash ? 'created' : 'rebuilt');
+       // If we deleted a previous version of the file and we replace it with a
+       // new one we have an update.
+       if ($status == 'deleted') {
+@@ -2248,6 +2246,7 @@ function _locale_rebuild_js($langcode = NULL) {
+       return TRUE;
+     case 'rebuilt':
+       watchdog('locale', 'JavaScript translation file %file.js was lost.', array('%file' => $language->javascript), WATCHDOG_WARNING);
++      // let slip through
+       // Proceed to the 'created' case as the JavaScript translation file has
+       // been created again.
+     case 'created':
+diff --git a/includes/theme.inc b/includes/theme.inc
+index e5a1031..72f36ff 100644
+--- a/includes/theme.inc
++++ b/includes/theme.inc
+@@ -606,7 +606,7 @@ function list_themes($refresh = FALSE) {
+  *   implementations for named objects.
+  * @param ...
+  *   Additional arguments to pass along to the theme function.
+- * 
++ *
+  * @return
+  *   An HTML string that generates the themed output.
+  */
+@@ -1191,12 +1191,24 @@ function theme_status_messages($display = NULL) {
+ }
+ 
+ /**
+- * Return a themed set of links.
++ * Returns HTML for a set of links.
+  *
+  * @param $links
+- *   A keyed array of links to be themed.
++ *   An associative array of links to be themed. The key for each link
++ *   is used as its CSS class. Each link should be itself an array, with the
++ *   following elements:
++ *   - title: The link text.
++ *   - href: The link URL. If omitted, the 'title' is shown as a plain text
++ *     item in the links list.
++ *   - html: (optional) Whether or not 'title' is HTML. If set, the title
++ *     will not be passed through check_plain().
++ *   - attributes: (optional) Attributes for the anchor, or for the <span> tag
++ *     used in its place if no 'href' is supplied.
++ *   If the 'href' element is supplied, the entire link array is passed to l()
++ *   as its $options parameter.
+  * @param $attributes
+- *   A keyed array of attributes
++ *   An associative array of attributes for the UL containing the list of links.
++ *
+  * @return
+  *   A string containing an unordered list of links.
+  */
+@@ -1267,7 +1279,7 @@ function theme_links($links, $attributes = array('class' => 'links')) {
+  * @param $getsize
+  *   If set to TRUE, the image's dimension are fetched and added as width/height attributes.
+  *   Defaults to TRUE. Must be set to FALSE if $path is a full URL.
+- * 
++ *
+  * @return
+  *   A string containing the image tag.
+  */
+@@ -1580,7 +1592,7 @@ function theme_more_help_link($url) {
+  *
+  * @see theme_feed_icon()
+  * @param $url
+- *   The url of the feed.
++ *   The URL of the feed.
+  */
+ function theme_xml_icon($url) {
+   if ($image = theme('image', 'misc/xml.png', t('XML feed'), t('XML feed'))) {
+@@ -1592,7 +1604,7 @@ function theme_xml_icon($url) {
+  * Return code that emits an feed icon.
+  *
+  * @param $url
+- *   The url of the feed.
++ *   The URL of the feed.
+  * @param $title
+  *   A descriptive title of the feed.
+   */
+@@ -1606,7 +1618,7 @@ function theme_feed_icon($url, $title) {
+  * Returns code that emits the 'more' link used on blocks.
+  *
+  * @param $url
+- *   The url of the main page
++ *   The URL of the main page
+  * @param $title
+  *   A descriptive verb for the link, like 'Read more'
+  */
+diff --git a/includes/xmlrpcs.inc b/includes/xmlrpcs.inc
+index 049a92b..383333b 100644
+--- a/includes/xmlrpcs.inc
++++ b/includes/xmlrpcs.inc
+@@ -106,11 +106,12 @@ function xmlrpc_server_error($error, $message = FALSE) {
+   xmlrpc_server_output(xmlrpc_error_get_xml($error));
+ }
+ 
++// mkalkbrenner: fixed xmlrpc server http and xml headers by adding encoding
+ function xmlrpc_server_output($xml) {
+-  $xml = '<?xml version="1.0"?>'."\n". $xml;
++  $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n". $xml;
+   header('Connection: close');
+   header('Content-Length: '. strlen($xml));
+-  header('Content-Type: text/xml');
++  header('Content-Type: text/xml; charset=utf-8');
+   header('Date: '. date('r'));
+   echo $xml;
+   exit;
+diff --git a/install.php b/install.php
+index 2d17563..484a46b 100644
+--- a/install.php
++++ b/install.php
+@@ -48,7 +48,7 @@ function install_main() {
+   drupal_load('module', 'filter');
+ 
+   // Install profile chosen, set the global immediately.
+-  // This needs to be done before the theme cache gets 
++  // This needs to be done before the theme cache gets
+   // initialized in drupal_maintenance_theme().
+   if (!empty($_GET['profile'])) {
+     $profile = preg_replace('/[^a-zA-Z_0-9]/', '', $_GET['profile']);
+diff --git a/misc/drupal.js b/misc/drupal.js
+index 7c2bde6..c8f5447 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -1,4 +1,27 @@
+ 
++/**
++ * Override jQuery.fn.init to guard against XSS attacks.
++ *
++ * See http://bugs.jquery.com/ticket/9521
++ */
++(function () {
++  var jquery_init = jQuery.fn.init;
++  jQuery.fn.init = function (selector, context, rootjQuery) {
++    // If the string contains a "#" before a "<", treat it as invalid HTML.
++    if (selector && typeof selector === 'string') {
++      var hash_position = selector.indexOf('#');
++      if (hash_position >= 0) {
++        var bracket_position = selector.indexOf('<');
++        if (bracket_position > hash_position) {
++          throw 'Syntax error, unrecognized expression: ' + selector;
++        }
++      }
++    }
++    return jquery_init.call(this, selector, context, rootjQuery);
++  };
++  jQuery.fn.init.prototype = jquery_init.prototype;
++})();
++
+ var Drupal = Drupal || { 'settings': {}, 'behaviors': {}, 'themes': {}, 'locale': {} };
+ 
+ /**
+diff --git a/misc/tabledrag.js b/misc/tabledrag.js
+index 9916821..4ac3714 100644
+--- a/misc/tabledrag.js
++++ b/misc/tabledrag.js
+@@ -1014,7 +1014,7 @@ Drupal.tableDrag.prototype.row.prototype.findSiblings = function(rowSettings) {
+   var siblings = new Array();
+   var directions = new Array('prev', 'next');
+   var rowIndentation = this.indents;
+-  for (var d in directions) {
++  for (var d = 0; d < directions.length; d++) {
+     var checkRow = $(this.element)[directions[d]]();
+     while (checkRow.length) {
+       // Check that the sibling contains a similar target field.
+diff --git a/misc/tableheader.js b/misc/tableheader.js
+index 9d05e23..9deb18d 100644
+--- a/misc/tableheader.js
++++ b/misc/tableheader.js
+@@ -69,7 +69,7 @@ Drupal.behaviors.tableHeader = function (context) {
+     // Get the height of the header table and scroll up that amount.
+     if (prevAnchor != location.hash) {
+       if (location.hash != '') {
+-        var offset = $('td' + location.hash).offset();
++        var offset = $(document).find('td' + location.hash).offset();
+         if (offset) {
+           var top = offset.top;
+           var scrollLocation = top - $(e).height();
+diff --git a/modules/blogapi/blogapi.install b/modules/blogapi/blogapi.install
+index bd2f67d..c14c390 100644
+--- a/modules/blogapi/blogapi.install
++++ b/modules/blogapi/blogapi.install
+@@ -58,7 +58,7 @@ function blogapi_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-5.x-to-6.x Blog API updates from 5.x to 6.x
++ * @addtogroup updates-5.x-to-6.x
+  * @{
+  */
+ 
+@@ -118,7 +118,7 @@ function blogapi_update_6001() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "addtogroup updates-5.x-to-6.x".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/book/book.pages.inc b/modules/book/book.pages.inc
+index 46eb86a..e0e3f65 100644
+--- a/modules/book/book.pages.inc
++++ b/modules/book/book.pages.inc
+@@ -39,6 +39,14 @@ function book_render() {
+  *   in a format determined by the $type parameter.
+  */
+ function book_export($type, $nid) {
++  // Check that the node exists and that the current user has access to it.
++  $node = node_load($nid);
++  if (!$node) {
++    return MENU_NOT_FOUND;
++  }
++  if (!node_access('view', $node)) {
++    return MENU_ACCESS_DENIED;
++  }
+ 
+   $type = drupal_strtolower($type);
+ 
+diff --git a/modules/comment/comment-wrapper.tpl.php b/modules/comment/comment-wrapper.tpl.php
+index 6b6defc..d6471c6 100644
+--- a/modules/comment/comment-wrapper.tpl.php
++++ b/modules/comment/comment-wrapper.tpl.php
+@@ -27,7 +27,6 @@
+  *   - COMMENT_CONTROLS_HIDDEN
+  *
+  * @see template_preprocess_comment_wrapper()
+- * @see theme_comment_wrapper()
+  */
+ ?>
+ <div id="comments">
+diff --git a/modules/comment/comment.install b/modules/comment/comment.install
+index b129299..aa696e2 100644
+--- a/modules/comment/comment.install
++++ b/modules/comment/comment.install
+@@ -67,7 +67,7 @@ function comment_update_6003() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra system updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -91,7 +91,7 @@ function comment_update_6005() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/comment/comment.module b/modules/comment/comment.module
+index 2248ddc..bc45a32 100644
+--- a/modules/comment/comment.module
++++ b/modules/comment/comment.module
+@@ -1827,7 +1827,6 @@ function theme_comment_post_forbidden($node) {
+  * Process variables for comment-wrapper.tpl.php.
+  *
+  * @see comment-wrapper.tpl.php
+- * @see theme_comment_wrapper()
+  */
+ function template_preprocess_comment_wrapper(&$variables) {
+   // Provide contextual information.
+diff --git a/modules/dblog/dblog.admin.inc b/modules/dblog/dblog.admin.inc
+index 839a42a..c17a9cb 100644
+--- a/modules/dblog/dblog.admin.inc
++++ b/modules/dblog/dblog.admin.inc
+@@ -1,4 +1,5 @@
+ <?php
++// $Id: dblog.admin.inc,v 1.6.2.1 2008/09/17 05:47:53 goba Exp $
+ 
+ /**
+  * @file
+@@ -89,7 +90,7 @@ function dblog_overview() {
+         l(truncate_utf8(_dblog_format_message($dblog), variable_get('dblog_overview_char_limit', 56), TRUE, TRUE), 'admin/reports/event/'. $dblog->wid, array('html' => TRUE)),
+         theme('username', $dblog),
+         $dblog->server_addr . ' (' . $dblog->server_name. ')',
+-        $dblog->link,
++        filter_xss($dblog->link),
+       ),
+       // Attributes for tr
+       'class' => "dblog-". preg_replace('/[^a-z]/i', '-', $dblog->type) .' '. $classes[$dblog->severity]
+diff --git a/modules/dblog/dblog.install b/modules/dblog/dblog.install
+index afb0c47..7789463 100644
+--- a/modules/dblog/dblog.install
++++ b/modules/dblog/dblog.install
+@@ -1,4 +1,5 @@
+ <?php
++// $Id: dblog.install,v 1.6.2.3 2009/09/14 08:19:24 goba Exp $
+ 
+ /**
+  * Implementation of hook_install().
+@@ -121,7 +122,7 @@ function dblog_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra database logging updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -154,6 +155,6 @@ function dblog_update_6002() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/dblog/dblog.module b/modules/dblog/dblog.module
+index f69beed..c5c3390 100644
+--- a/modules/dblog/dblog.module
++++ b/modules/dblog/dblog.module
+@@ -97,7 +97,7 @@ function dblog_init() {
+ /**
+  * Implementation of hook_cron().
+  *
+- * Remove expired log messages and flood control events.
++ * Remove expired log messages.
+  */
+ function dblog_cron() {
+   // Cleanup the watchdog table
+@@ -125,6 +125,9 @@ function _dblog_get_message_types() {
+   return $types;
+ }
+ 
++/**
++ * Implementation of hook_watchdog().
++ */
+ function dblog_watchdog($log = array()) {
+   $current_db = db_set_active('dedicated_watchdog_connection');
+   db_query("INSERT INTO {watchdog}
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 33de8d3..83778f7 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -746,7 +746,7 @@ function _filter_url_settings($format) {
+ 
+ /**
+  * URL filter. Automatically converts text web addresses (URLs, e-mail addresses,
+- * ftp links, etc.) into hyperlinks.
++ * FTP links, etc.) into hyperlinks.
+  */
+ function _filter_url($text, $format) {
+   // Pass length to regexp callback
+diff --git a/modules/forum/forum.module b/modules/forum/forum.module
+index 1b027f3..d656f10 100644
+--- a/modules/forum/forum.module
++++ b/modules/forum/forum.module
+@@ -690,7 +690,7 @@ function template_preprocess_forums(&$variables) {
+       // Check if the current user has the 'create' permission for this node type.
+       if (node_access('create', $type)) {
+         // Fetch the "General" name of the content type;
+-        // Push the link with title and url to the array.
++        // Push the link with title and URL to the array.
+         $forum_types[$type] = array('title' => t('Post new @node_type', array('@node_type' => node_get_types('name', $type))), 'href' => 'node/add/'. str_replace('_', '-', $type) .'/'. $variables['tid']);
+       }
+     }
+diff --git a/modules/locale/locale.install b/modules/locale/locale.install
+index 6bd1fa0..6c04538 100644
+--- a/modules/locale/locale.install
++++ b/modules/locale/locale.install
+@@ -15,7 +15,7 @@ function locale_install() {
+ }
+ 
+ /**
+- * @defgroup updates-5.x-to-6.x Locale updates from 5.x to 6.x
++ * @addtogroup updates-5.x-to-6.x
+  * @{
+  */
+ 
+@@ -221,11 +221,11 @@ function locale_update_6006() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "addtogroup updates-5.x-to-6.x".
+  */
+ 
+ /**
+- * @defgroup updates-6.x-extra Locale updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -239,7 +239,7 @@ function locale_update_6007() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/menu/menu.module b/modules/menu/menu.module
+index cfe17b1..ff804d9 100644
+--- a/modules/menu/menu.module
++++ b/modules/menu/menu.module
+@@ -273,7 +273,6 @@ function menu_block($op = 'list', $delta = 0) {
+   if ($op == 'list') {
+     $blocks = array();
+     foreach ($menus as $name => $title) {
+-      // Default "Navigation" block is handled by user.module.
+       $blocks[$name]['info'] = check_plain($title);
+       // Menu blocks can't be cached because each menu item can have
+       // a custom access callback. menu.inc manages its own caching.
+diff --git a/modules/node/node.pages.inc b/modules/node/node.pages.inc
+index ec79833..cce26fd 100644
+--- a/modules/node/node.pages.inc
++++ b/modules/node/node.pages.inc
+@@ -14,6 +14,9 @@ function node_page_edit($node) {
+   return drupal_get_form($node->type .'_node_form', $node);
+ }
+ 
++/**
++ * Page callback: Displays add content links for available content types.
++ */
+ function node_add_page() {
+   $item = menu_get_item();
+   $content = system_admin_menu_block($item);
+@@ -31,7 +34,7 @@ function theme_node_add_list($content) {
+   if ($content) {
+     $output = '<dl class="node-type-list">';
+     foreach ($content as $item) {
+-      $output .= '<dt>'. l($item['title'], $item['href'], $item['localized_options']) .'</dt>';      
++      $output .= '<dt>'. l($item['title'], $item['href'], $item['localized_options']) .'</dt>';
+       $output .= '<dd>'. filter_xss_admin($item['description']) .'</dd>';
+     }
+     $output .= '</dl>';
+diff --git a/modules/node/node.tpl.php b/modules/node/node.tpl.php
+index 0ae6fd9..0db067c 100644
+--- a/modules/node/node.tpl.php
++++ b/modules/node/node.tpl.php
+@@ -15,7 +15,7 @@
+  * - $links: Themed links like "Read more", "Add new comment", etc. output
+  *   from theme_links().
+  * - $name: Themed username of node author output from theme_username().
+- * - $node_url: Direct url of the current node.
++ * - $node_url: Direct URL of the current node.
+  * - $terms: the themed list of taxonomy term links output from theme_links().
+  * - $submitted: themed submission information output from
+  *   theme_node_submitted().
+diff --git a/modules/openid/openid.css b/modules/openid/openid.css
+index 6129865..900c0d4 100644
+--- a/modules/openid/openid.css
++++ b/modules/openid/openid.css
+@@ -36,4 +36,4 @@ html.js #user-login li.openid-link {
+ #user-login li.openid-link a {
+   background: transparent url("login-bg.png") no-repeat 0 2px;
+   padding: 0 20px;
+-}
++}
+\ No newline at end of file
+diff --git a/modules/openid/openid.install b/modules/openid/openid.install
+index 595310b..0abc24f 100644
+--- a/modules/openid/openid.install
++++ b/modules/openid/openid.install
+@@ -95,7 +95,7 @@ function openid_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra openid updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -139,6 +139,6 @@ function openid_update_6000() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index 0a07068..88c4df6 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -501,6 +501,8 @@ function openid_association_request($public) {
+ }
+ 
+ function openid_authentication_request($claimed_id, $identity, $return_to = '', $assoc_handle = '', $version = 2) {
++  global $base_url;
++
+   module_load_include('inc', 'openid');
+ 
+   $ns = ($version == 2) ? OPENID_NS_2_0 : OPENID_NS_1_0;
+@@ -514,10 +516,10 @@ function openid_authentication_request($claimed_id, $identity, $return_to = '',
+   );
+ 
+   if ($version == 2) {
+-    $request['openid.realm'] = url('', array('absolute' => TRUE));
++    $request['openid.realm'] = $base_url . '/';
+   }
+   else {
+-    $request['openid.trust_root'] = url('', array('absolute' => TRUE));
++    $request['openid.trust_root'] = $base_url . '/';
+   }
+ 
+   // Simple Registration
+diff --git a/modules/profile/profile-wrapper.tpl.php b/modules/profile/profile-wrapper.tpl.php
+index 5b10d47..4601b59 100644
+--- a/modules/profile/profile-wrapper.tpl.php
++++ b/modules/profile/profile-wrapper.tpl.php
+@@ -6,7 +6,7 @@
+  * profiles.
+  *
+  * This template is used when viewing a list of users. It can be a general
+- * list for viewing all users with the url of "example.com/profile" or when
++ * list for viewing all users with the URL of "example.com/profile" or when
+  * viewing a set of users who share a specific value for a profile such
+  * as "example.com/profile/country/belgium".
+  *
+diff --git a/modules/search/search.module b/modules/search/search.module
+index b687f76..6c85d37 100644
+--- a/modules/search/search.module
++++ b/modules/search/search.module
+@@ -43,7 +43,7 @@ define('PREG_CLASS_SEARCH_EXCLUDE',
+ '\x{2ce5}-\x{2cff}\x{2d6f}\x{2e00}-\x{3005}\x{3007}-\x{303b}\x{303d}-\x{303f}'.
+ '\x{3099}-\x{309e}\x{30a0}\x{30fb}\x{30fd}\x{30fe}\x{3190}-\x{319f}\x{31c0}-'.
+ '\x{31cf}\x{3200}-\x{33ff}\x{4dc0}-\x{4dff}\x{a015}\x{a490}-\x{a716}\x{a802}'.
+-'\x{a806}\x{a80b}\x{a823}-\x{a82b}\x{d800}-\x{f8ff}\x{fb1e}\x{fb29}\x{fd3e}'.
++'\x{a806}\x{a80b}\x{a823}-\x{a82b}\x{e000}-\x{f8ff}\x{fb1e}\x{fb29}\x{fd3e}'.
+ '\x{fd3f}\x{fdfc}-\x{fe6b}\x{feff}-\x{ff0f}\x{ff1a}-\x{ff20}\x{ff3b}-\x{ff40}'.
+ '\x{ff5b}-\x{ff65}\x{ff70}\x{ff9e}\x{ff9f}\x{ffe0}-\x{fffd}');
+ 
+diff --git a/modules/statistics/statistics.install b/modules/statistics/statistics.install
+index 515796a..9103588 100644
+--- a/modules/statistics/statistics.install
++++ b/modules/statistics/statistics.install
+@@ -118,7 +118,7 @@ function statistics_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra statistics updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -132,6 +132,6 @@ function statistics_update_6000() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/system/system.admin.inc b/modules/system/system.admin.inc
+index 68f1775..607d378 100644
+--- a/modules/system/system.admin.inc
++++ b/modules/system/system.admin.inc
+@@ -128,7 +128,7 @@ function system_admin_by_module() {
+ }
+ 
+ /**
+- * Menu callback; displays a module's settings page.
++ * Menu callback: Displays the configuration overview page.
+  */
+ function system_settings_overview() {
+   // Check database setup if necessary
+diff --git a/modules/system/system.install b/modules/system/system.install
+index 71fc99e..67dbf13 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -380,17 +380,17 @@ function system_install() {
+   // anonymous user. uid is 1 here for now, but very soon it will be changed
+   // to 0.
+   db_query("INSERT INTO {users} (uid, name, mail) VALUES(%d, '%s', '%s')", 1, '', '');
+-  
++
+   // We need some placeholders here as name and mail are uniques and data is
+   // presumed to be a serialized array. Install will change uid 1 immediately
+   // anyways. So we insert the superuser here, the uid is 2 here for now, but
+   // very soon it will be changed to 1.
+   db_query("INSERT INTO {users} (uid, name, mail, created, data) VALUES(%d, '%s', '%s', %d, '%s')", 2, 'placeholder-for-uid-1', 'placeholder-for-uid-1', time(), serialize(array()));
+-  
++
+   // This sets the above two users uid 0 (anonymous). We avoid an explicit 0
+   // otherwise MySQL might insert the next auto_increment value.
+   db_query("UPDATE {users} SET uid = uid - uid WHERE name = '%s'", '');
+-  
++
+   // This sets uid 1 (superuser). We skip uid 2 but that's not a big problem.
+   db_query("UPDATE {users} SET uid = 1 WHERE name = '%s'", 'placeholder-for-uid-1');
+ 
+@@ -400,8 +400,8 @@ function system_install() {
+   db_query("INSERT INTO {role} (name) VALUES ('%s')", 'authenticated user');
+   $rid_authenticated = db_last_insert_id('role', 'rid');
+ 
+-  // Sanity check to ensure the anonymous and authenticated role IDs are the 
+-  // same as the drupal defined constants. In certain situations, this will 
++  // Sanity check to ensure the anonymous and authenticated role IDs are the
++  // same as the drupal defined constants. In certain situations, this will
+   // not be true
+   if ($rid_anonymous != DRUPAL_ANONYMOUS_RID) {
+     db_query("UPDATE {role} SET rid = %d WHERE rid = %d", DRUPAL_ANONYMOUS_RID, $rid_anonymous);
+@@ -1184,7 +1184,7 @@ function system_update_1022() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-extra"
++ * @} End of "defgroup updates-5.x-extra".
+  */
+ 
+ /**
+@@ -2586,7 +2586,7 @@ function system_update_6047() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "defgroup updates-5.x-to-6.x".
+  */
+ 
+ /**
+@@ -2710,7 +2710,7 @@ function system_update_6054() {
+     );
+     db_create_table($ret, 'semaphore', $schema['semaphore']);
+   }
+-  
++
+   return $ret;
+ }
+ 
+@@ -2727,7 +2727,7 @@ function system_update_6055() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "defgroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/system/system.module b/modules/system/system.module
+index fb41f03..3a93893 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.25.18');
++define('VERSION', '6.28.21');
+ 
+ /**
+  * Core API compatibility.
+@@ -1208,8 +1208,6 @@ function system_node_type($op, $info) {
+  *   - A string containing a Drupal path.
+  *   - An associative array with a 'path' key. Additional array values are
+  *     passed as the $options parameter to l().
+- *   If the 'destination' query parameter is set in the URL when viewing a
+- *   confirmation form, that value will be used instead of $path.
+  * @param $description
+  *   Additional text to display. Defaults to t('This action cannot be undone.').
+  * @param $yes
+@@ -1959,8 +1957,8 @@ function _system_zonelist() {
+ function system_check_http_request() {
+   // Try to get the content of the front page via drupal_http_request().
+   $result = drupal_http_request(url('', array('absolute' => TRUE)), array(), 'GET', NULL, 0);
+-  // We only care that we get a http response - this means that Drupal
+-  // can make a http request.
++  // We only care that we get a HTTP response - this means that Drupal
++  // can make a HTTP request.
+   $works = isset($result->code) && ($result->code >= 100) && ($result->code < 600);
+   variable_set('drupal_http_request_fails', !$works);
+   return $works;
+diff --git a/modules/update/update.compare.inc b/modules/update/update.compare.inc
+index 1c2e818..4520a18 100644
+--- a/modules/update/update.compare.inc
++++ b/modules/update/update.compare.inc
+@@ -304,6 +304,10 @@ function update_calculate_project_data($available) {
+   update_process_project_info($projects);
+   foreach ($projects as $project => $project_info) {
+     if (isset($available[$project])) {
++      $existing_version = $projects[$project]['existing_version'];
++      if ('drupal' == $project && (empty($projects[$project]['info']['project status url']) || $projects[$project]['info']['project status url'] != 'http://drupal.cocomore.com/release-history')) {
++        $existing_version = preg_replace('/\.\d+$/', '', $existing_version);
++      }
+ 
+       // If the project status is marked as something bad, there's nothing
+       // else to consider.
+@@ -416,7 +420,7 @@ function update_calculate_project_data($available) {
+       }
+       foreach ($available[$project]['releases'] as $version => $release) {
+         // First, if this is the existing release, check a few conditions.
+-        if ($projects[$project]['existing_version'] === $version) {
++        if ($existing_version === $version) {
+           if (isset($release['terms']['Release type']) &&
+               in_array('Insecure', $release['terms']['Release type'])) {
+             $projects[$project]['status'] = UPDATE_NOT_SECURE;
+@@ -505,7 +509,7 @@ function update_calculate_project_data($available) {
+         }
+ 
+         // Stop searching once we hit the currently installed version.
+-        if ($projects[$project]['existing_version'] === $version) {
++        if ($existing_version === $version) {
+           break;
+         }
+ 
+@@ -580,7 +584,7 @@ function update_calculate_project_data($available) {
+       // Figure out the status, based on what we've seen and the install type.
+       switch ($projects[$project]['install_type']) {
+         case 'official':
+-          if ($projects[$project]['existing_version'] === $projects[$project]['recommended'] || $projects[$project]['existing_version'] === $projects[$project]['latest_version']) {
++          if ($existing_version === $projects[$project]['recommended'] || $existing_version === $projects[$project]['latest_version']) {
+             $projects[$project]['status'] = UPDATE_CURRENT;
+           }
+           else {
+diff --git a/modules/upload/upload.module b/modules/upload/upload.module
+index 3a9e973..ee5b127 100644
+--- a/modules/upload/upload.module
++++ b/modules/upload/upload.module
+@@ -314,10 +314,10 @@ function upload_nodeapi(&$node, $op, $teaser = NULL) {
+       break;
+ 
+     case 'search result':
+-      return isset($node->files) && is_array($node->files) ? format_plural(count($node->files), '1 attachment', '@count attachments') : NULL;
++      return isset($node->files) && is_array($node->files) && user_access('view uploaded files') ? format_plural(count($node->files), '1 attachment', '@count attachments') : NULL;
+ 
+     case 'rss item':
+-      if (is_array($node->files)) {
++      if (is_array($node->files) && user_access('view uploaded files')) {
+         $files = array();
+         foreach ($node->files as $file) {
+           if ($file->list) {
+diff --git a/modules/user/user.admin.inc b/modules/user/user.admin.inc
+index eac39df..c84fdbc 100644
+--- a/modules/user/user.admin.inc
++++ b/modules/user/user.admin.inc
+@@ -5,6 +5,21 @@
+  * Admin page callback file for the user module.
+  */
+ 
++/**
++ * Page callback: Generates the appropriate user administration form.
++ *
++ * This function generates the user registration, multiple user cancellation,
++ * or filtered user list admin form, depending on the argument and the POST
++ * form values.
++ *
++ * @param string $callback_arg
++ *   (optional) Indicates which form to build. Defaults to '', which will
++ *   trigger the user filter form. If the POST value 'op' is present, this
++ *   function uses that value as the callback argument.
++ *
++ * @return string
++ *   A renderable form array for the respective request.
++ */
+ function user_admin($callback_arg = '') {
+   $op = isset($_POST['op']) ? $_POST['op'] : $callback_arg;
+ 
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 26b1a47..b49cc01 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -540,7 +540,12 @@ function user_access($string, $account = NULL, $reset = FALSE) {
+ /**
+  * Checks for usernames blocked by user administration.
+  *
+- * @return boolean TRUE for blocked users, FALSE for active.
++ * @param $name
++ *   A string containing a name of the user.
++ *
++ * @return
++ *   Object with property 'name' (the user name), if the user is blocked;
++ *   FALSE if the user is not blocked.
+  */
+ function user_is_blocked($name) {
+   $deny = db_fetch_object(db_query("SELECT name FROM {users} WHERE status = 0 AND name = '%s'", $name));
+@@ -599,14 +604,17 @@ function user_search($op = 'search', $keys = NULL, $skip_access_check = FALSE) {
+         // Replace wildcards with MySQL/PostgreSQL wildcards.
+         $keys = preg_replace('!\*+!', '%', $keys);
+         if (user_access('administer users')) {
+-          // Administrators can also search in the otherwise private email field.
++          // Administrators can also search in the otherwise private email
++          // field, and they don't need to be restricted to only active users.
+           $result = pager_query("SELECT name, uid, mail FROM {users} WHERE name LIKE '%%%s%%' OR mail LIKE '%%%s%%'", 15, 0, NULL, $keys, $keys);
+           while ($account = db_fetch_object($result)) {
+             $find[] = array('title' => $account->name .' ('. $account->mail .')', 'link' => url('user/'. $account->uid, array('absolute' => TRUE)));
+           }
+         }
+         else {
+-          $result = pager_query("SELECT name, uid FROM {users} WHERE name LIKE '%%%s%%'", 15, 0, NULL, $keys);
++          // Regular users can only search via user names, and we do not show
++          // them blocked accounts.
++          $result = pager_query("SELECT name, uid FROM {users} WHERE status = 1 AND name LIKE '%%%s%%'", 15, 0, NULL, $keys);
+           while ($account = db_fetch_object($result)) {
+             $find[] = array('title' => $account->name, 'link' => url('user/'. $account->uid, array('absolute' => TRUE)));
+           }
+@@ -2190,22 +2198,25 @@ function user_preferred_language($account, $default = NULL) {
+  * @see drupal_mail()
+  *
+  * @param $op
+- *  The operation being performed on the account.  Possible values:
+- *  'register_admin_created': Welcome message for user created by the admin
+- *  'register_no_approval_required': Welcome message when user self-registers
+- *  'register_pending_approval': Welcome message, user pending admin approval
+- *  'password_reset': Password recovery request
+- *  'status_activated': Account activated
+- *  'status_blocked': Account blocked
+- *  'status_deleted': Account deleted
++ *   The operation being performed on the account. Possible values:
++ *   - 'register_admin_created': Welcome message for user created by the admin.
++ *   - 'register_no_approval_required': Welcome message when user
++ *     self-registers.
++ *   - 'register_pending_approval': Welcome message, user pending admin
++ *     approval.
++ *   - 'password_reset': Password recovery request.
++ *   - 'status_activated': Account activated.
++ *   - 'status_blocked': Account blocked.
++ *   - 'status_deleted': Account deleted.
+  *
+  * @param $account
+- *  The user object of the account being notified.  Must contain at
+- *  least the fields 'uid', 'name', and 'mail'.
++ *   The user object of the account being notified. Must contain at
++ *   least the fields 'uid', 'name', and 'mail'.
+  * @param $language
+- *  Optional language to use for the notification, overriding account language.
++ *   Optional language to use for the notification, overriding account language.
++ *
+  * @return
+- *  The return value from drupal_mail_send(), if ends up being called.
++ *   The return value from drupal_mail_send(), if ends up being called.
+  */
+ function _user_mail_notify($op, $account, $language = NULL) {
+   // By default, we always notify except for deleted and blocked.
+diff --git a/profiles/drupalcenter/drupalcenter.profile b/profiles/drupalcenter/drupalcenter.profile
+index 2f443c6..22ae29d 100644
+--- a/profiles/drupalcenter/drupalcenter.profile
++++ b/profiles/drupalcenter/drupalcenter.profile
+@@ -26,7 +26,7 @@ function drupalcenter_profile_details() {
+   );
+ }
+ 
+-function drupalcenter_profile_tasks() {
++function drupalcenter_profile_tasks() {
+  $types = array(
+     array(
+       'type' => 'page',
+@@ -75,9 +75,9 @@ function drupalcenter_profile_tasks() {
+   }
+ 
+   // Update the menu router information.
+-  menu_rebuild();
+-
+-  // Footermessage
+-  //variable_set('site_footer', 'Deutschsprachige Drupal Version:  <a href="http://www.drupalcenter.de">Drupal Center</a>');
+-
++  menu_rebuild();
++
++  // Footermessage
++  //variable_set('site_footer', 'Deutschsprachige Drupal Version:  <a href="http://www.drupalcenter.de">Drupal Center</a>');
++
+ }
+diff --git a/scripts/drupal.sh b/scripts/drupal.sh
+index 981e071..fa68d36 100644
+--- a/scripts/drupal.sh
++++ b/scripts/drupal.sh
+@@ -112,7 +112,7 @@ while ($param = array_shift($_SERVER['argv'])) {
+           $_REQUEST = $_GET;
+         }
+ 
+-        // set file to execute or Drupal path (clean urls enabled)
++        // set file to execute or Drupal path (clean URLs enabled)
+         if (isset($path['path']) && file_exists(substr($path['path'], 1))) {
+           $_SERVER['PHP_SELF'] = $_SERVER['REQUEST_URI'] = $path['path'];
+           $cmd = substr($path['path'], 1);
+diff --git a/sites/all/modules/pressflow/simpletest/CHANGELOG.txt b/sites/all/modules/pressflow/simpletest/CHANGELOG.txt
+index 9c0ef3f..28f0216 100644
+--- a/sites/all/modules/pressflow/simpletest/CHANGELOG.txt
++++ b/sites/all/modules/pressflow/simpletest/CHANGELOG.txt
+@@ -1,4 +1,17 @@
+-// $Id: CHANGELOG.txt,v 1.1.2.110 2009/12/30 22:37:21 boombatower Exp $
++// $Id: CHANGELOG.txt,v 1.1.2.117 2010/10/07 23:18:28 boombatower Exp $
++
++SimpleTest 6.x-2.11, 2010-10-07
++-------------------------------
++- Bugs
++   * #673928: SimpleTest 6.x-2.x requires PHP 5.2, but does not require in .info.
++   * #680318: Update D6 core patch.
++   * #627390: Filename cannot be empty if a test lasts less than 1s.
++   * #702142: $db_prefix is assumed to be a string.
++- Changes:
++   * #488810: drupalPost and hidden input.
++   * Reroll core patch.
++   * #867560: INSTALL.txt should contain details on patching
++   * #699434: Workaround check for dom support.
+ 
+ SimpleTest 6.x-2.10, 2009-12-30
+ -------------------------------
+diff --git a/sites/all/modules/pressflow/simpletest/INSTALL.txt b/sites/all/modules/pressflow/simpletest/INSTALL.txt
+index 8a09d97..bb619b0 100644
+--- a/sites/all/modules/pressflow/simpletest/INSTALL.txt
++++ b/sites/all/modules/pressflow/simpletest/INSTALL.txt
+@@ -1,4 +1,4 @@
+-$Id: INSTALL.txt,v 1.6.4.17 2009/12/30 22:28:50 boombatower Exp $
++$Id: INSTALL.txt,v 1.6.4.19 2010/10/07 21:50:06 boombatower Exp $
+ 
+ AUTHOR
+ ------
+@@ -6,11 +6,14 @@ Jimmy Berry ("boombatower", http://drupal.org/user/214218)
+ 
+ REQUIREMENTS
+ ------------
+-The php-curl library is required for SimpleTest to function.
++ * PHP 5.2 - both patched core and SimpleTest module
++   - php-curl
+ 
+ INSTALLATION
+ ------------
+-1. Apply the D6-core-simpletest.patch file to the Drupal 6 core.
++1. Apply the D6-core-simpletest.patch file to Drupal 6 core. Navigate to your
++   site root and use the following command (for a unix system):
++   patch -p0 < path/to/simpletest/D6-core-simpletest.patch
+ 
+ 2. (Optional)
+    Apply the "Show fatal errors in tests" patch to misc/drupal.js if you want
+@@ -27,7 +30,3 @@ INSTALLATION
+ 
+ 5. Go to Administer >> Site building >> Testing (admin/build/testing) to
+    begin using the module.
+-
+-6. (Optional)
+-   Go to Administer >> Help >> SimpleTest (admin/help/simpletest)
+-   for more information on how to use the SimpleTest module.
+diff --git a/sites/all/modules/pressflow/simpletest/drupal_web_test_case.php b/sites/all/modules/pressflow/simpletest/drupal_web_test_case.php
+index 6789a8d..b0db7f8 100644
+--- a/sites/all/modules/pressflow/simpletest/drupal_web_test_case.php
++++ b/sites/all/modules/pressflow/simpletest/drupal_web_test_case.php
+@@ -1,5 +1,5 @@
+ <?php
+-// $Id: drupal_web_test_case.php,v 1.2.2.3.2.46 2009/11/06 21:23:32 boombatower Exp $
++// $Id: drupal_web_test_case.php,v 1.2.2.3.2.47 2010/01/27 01:55:29 boombatower Exp $
+ // Core: Id: drupal_web_test_case.php,v 1.146 2009/08/31 18:30:26 webchick Exp $
+ 
+ /**
+diff --git a/sites/all/modules/pressflow/simpletest/simpletest.info b/sites/all/modules/pressflow/simpletest/simpletest.info
+index fe66b6a..bd010be 100644
+--- a/sites/all/modules/pressflow/simpletest/simpletest.info
++++ b/sites/all/modules/pressflow/simpletest/simpletest.info
+@@ -1,4 +1,4 @@
+-; $Id: simpletest.info,v 1.4.2.2.2.7 2009/09/05 13:34:10 boombatower Exp $
++; $Id: simpletest.info,v 1.4.2.2.2.8 2010/01/04 22:38:18 boombatower Exp $
+ ; Core: Id: simpletest.info,v 1.10 2009/08/31 18:30:26 webchick Exp
+ name = "SimpleTest"
+ description = "Provides a framework for unit and functional testing."
+@@ -7,7 +7,7 @@ package = Development
+ ; version = VERSION
+ ; core = 7.x
+ core = 6.x
+-php = 5 ; Drupal 6
++php = 5.2 ; Drupal 6
+ files[] = simpletest.module
+ files[] = simpletest.pages.inc
+ files[] = simpletest.install
+@@ -42,9 +42,9 @@ files[] = tests/block.test
+ ; files[] = tests/unicode.test
+ ; files[] = tests/xmlrpc.test
+ 
+-; Information added by drupal.org packaging script on 2009-12-30
+-version = "6.x-2.10"
++; Information added by drupal.org packaging script on 2010-10-07
++version = "6.x-2.11"
+ core = "6.x"
+ project = "simpletest"
+-datestamp = "1262212859"
++datestamp = "1286493665"
+ 
+diff --git a/sites/all/modules/pressflow/simpletest/simpletest.install b/sites/all/modules/pressflow/simpletest/simpletest.install
+index 20d638b..9de53d5 100644
+--- a/sites/all/modules/pressflow/simpletest/simpletest.install
++++ b/sites/all/modules/pressflow/simpletest/simpletest.install
+@@ -1,5 +1,5 @@
+ <?php
+-// $Id: simpletest.install,v 1.4.2.3.2.22 2009/12/14 23:36:34 boombatower Exp $
++// $Id: simpletest.install,v 1.4.2.3.2.23 2010/10/07 22:16:59 boombatower Exp $
+ // Core: Id: simpletest.install,v 1.26 2009/08/17 19:14:41 webchick Exp
+ 
+ /**
+@@ -141,7 +141,7 @@ function simpletest_requirements($phase) {
+ 
+   $has_curl = function_exists('curl_init');
+   $has_hash = function_exists('hash_hmac');
+-  $has_domdocument = class_exists('DOMDocument');
++  $has_domdocument = method_exists('DOMDocument', 'loadHTML');
+ 
+   $requirements['curl'] = array(
+     'title' => $t('cURL'),
+diff --git a/sites/all/modules/pressflow/simpletest/simpletest.module b/sites/all/modules/pressflow/simpletest/simpletest.module
+index 6a91e11..b4cb7a0 100644
+--- a/sites/all/modules/pressflow/simpletest/simpletest.module
++++ b/sites/all/modules/pressflow/simpletest/simpletest.module
+@@ -1,5 +1,5 @@
+ <?php
+-// $Id: simpletest.module,v 1.33.2.4.2.21 2009/12/14 23:27:11 boombatower Exp $
++// $Id: simpletest.module,v 1.33.2.4.2.23 2010/10/07 21:50:06 boombatower Exp $
+ // Core: Id: simpletest.module,v 1.71 2009/08/24 00:14:21 webchick Exp
+ 
+ /**
+@@ -208,7 +208,12 @@ function _simpletest_batch_operation($test_list_init, $test_id, &$context) {
+   // Drupal 6.
+   require_once drupal_get_path('module', 'simpletest') . '/drupal_web_test_case.php';
+   $classes = simpletest_test_get_all_classes();
+-  require_once $classes[$test_class]['file'];
++
++//  require_once $classes[$test_class]['file'];
++  // Drupal 6.
++  if (!empty($classes[$test_class]['file'])) {
++    require_once $classes[$test_class]['file'];
++  }
+ 
+   $test = new $test_class($test_id);
+   $test->run();
+diff --git a/sites/default/default.settings.php b/sites/default/default.settings.php
+index 1fc214f..ac49d5c 100644
+--- a/sites/default/default.settings.php
++++ b/sites/default/default.settings.php
+@@ -126,8 +126,7 @@ $db_prefix = '';
+  */
+ #$conf['db_replication_fallback_to_master'] = TRUE;
+ 
+-/**
+- * cocomore extension for Pressflow:
++/* cocomore extension for Pressflow:
+  * using a smart algorithm to route queries to slave database
+  * which allows contrib modules to benefit from replication
+  */
+@@ -136,7 +135,7 @@ $db_prefix = '';
+ #$conf['db_replication_keep_authenticated_users_on_master'] = FALSE; // depends on db_replication_smart_replicant_switch
+ 
+ /**
+- * cocomore's optional cache.inc using a lazy write strategy
++ * optional cache.inc using a lazy write strategy
+  */
+ #$conf['cache_inc'] = './includes/cache_lazy_write.inc';
+ 
+@@ -311,8 +310,8 @@ ini_set('url_rewriter.tags',        '');
+ /**
+  * configure error levels for drupal_error_handler()
+  *
+- * drupal core uses E_ALL ^ E_DEPRECATED ^ E_NOTICE
+- * pressflow uses E_ALL ^ E_DEPRECATED
+- * cocomore core uses drupal core's filter as default but offers a variable to configure the filter
++ * drupal core uses E_ALL ^ E_DEPRECATED ^ E_NOTICE
++ * pressflow uses E_ALL ^ E_DEPRECATED
++ * modified d6 core uses drupal core's filter as default but offers a variable to configure the filter
+  */
+ # $conf['error_handler_errno_filter'] = E_ALL ^ E_DEPRECATED ^ E_NOTICE;
+diff --git a/update.php b/update.php
+index 2f2c40a..e325473 100644
+--- a/update.php
++++ b/update.php
+@@ -183,6 +183,9 @@ function update_do_one($module, $number, &$context) {
+   $context['message'] = 'Updating '. check_plain($module) .' module';
+ }
+ 
++/**
++ * Renders a form with a list of available database updates.
++ */
+ function update_selection_page() {
+   $output = '<p>The version of Drupal you are updating from has been automatically detected. You can select a different version, but you should not need to.</p>';
+   $output .= '<p>Click Update to start the update process.</p>';
+@@ -368,7 +371,7 @@ function update_info_page() {
+   update_task_list('info');
+   drupal_set_title('Drupal database update');
+   $token = drupal_get_token('update');
+-  $output = '<p>Use this utility to update your database whenever a new release of Drupal or a module is installed.</p><p>For more detailed information, see the <a href="http://drupal.org/node/258">Installation and upgrading handbook</a>. If you are unsure what these terms mean you should probably contact your hosting provider.</p>';
++  $output = '<p>Use this utility to update your database whenever a new release of Drupal or a module is installed.</p><p>For more detailed information, see the <a href="http://drupal.org/upgrade">upgrading handbook</a>. If you are unsure what these terms mean you should probably contact your hosting provider.</p>';
+   $output .= "<ol>\n";
+   $output .= "<li><strong>Back up your database</strong>. This process will change your database values and in case of emergency you may need to revert to a backup.</li>\n";
+   $output .= "<li><strong>Back up your code</strong>. Hint: when backing up module code, do not leave that backup in the 'modules' or 'sites/*/modules' directories as this may confuse Drupal's auto-discovery mechanism.</li>\n";
