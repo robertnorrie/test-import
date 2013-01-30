@@ -13,7 +13,7 @@
 FILETYPE='*.info'
 
 # Matches recursively only in the specfied directories
- INCLUDEONLY='modules/ themes/ profiles/'
+ INCLUDEONLY='modules themes profiles'
  files=( $(find $INCLUDEONLY -name "$FILETYPE") )
 
 # Deletes these four lines and print the path and file name for each file
