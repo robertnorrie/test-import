@@ -7,7 +7,7 @@
 # - @mariagwyn with the  help of greggles.
 
 # Specifies filetype to modify
-FILETYPE='*.info *.txt *.inc *.php *.css *.js *.module *.profile *.pl *.install *.theme *.sh '
+FILETYPE='*.info *.txt *.inc *.php *.css *.js *.module *.profile *.pl *.install *.theme *.sh'
 
 # Matches recursively only in the specfied directories
  INCLUDEONLY='modules/acquia themes/acquia profiles/acquia metadata'
