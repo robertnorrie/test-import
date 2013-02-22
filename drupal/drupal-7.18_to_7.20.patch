@@ -1,0 +1,421 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 7f4f0ff..750aabb 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,3 +1,12 @@
++
++Drupal 7.20, 2013-02-20
++-----------------------
++- Fixed security issues (denial of service). See SA-CORE-2013-002.
++
++Drupal 7.19, 2013-01-16
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2013-001.
++
+ Drupal 7.18, 2012-12-19
+ -----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2012-004.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 1b48217..2cfdfe9 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.18');
++define('VERSION', '7.20');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/misc/collapse.js b/misc/collapse.js
+index bd51ce5..512ff2f 100644
+--- a/misc/collapse.js
++++ b/misc/collapse.js
+@@ -58,9 +58,9 @@ Drupal.behaviors.collapse = {
+     $('fieldset.collapsible', context).once('collapse', function () {
+       var $fieldset = $(this);
+       // Expand fieldset if there are errors inside, or if it contains an
+-      // element that is targeted by the URI fragment identifier. 
++      // element that is targeted by the URI fragment identifier.
+       var anchor = location.hash && location.hash != '#' ? ', ' + location.hash : '';
+-      if ($('.error' + anchor, $fieldset).length) {
++      if ($fieldset.find('.error' + anchor).length) {
+         $fieldset.removeClass('collapsed');
+       }
+ 
+diff --git a/misc/drupal.js b/misc/drupal.js
+index 83b0884..643baa1 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -7,6 +7,27 @@ jQuery.noConflict();
+ (function ($) {
+ 
+ /**
++ * Override jQuery.fn.init to guard against XSS attacks.
++ *
++ * See http://bugs.jquery.com/ticket/9521
++ */
++var jquery_init = $.fn.init;
++$.fn.init = function (selector, context, rootjQuery) {
++  // If the string contains a "#" before a "<", treat it as invalid HTML.
++  if (selector && typeof selector === 'string') {
++    var hash_position = selector.indexOf('#');
++    if (hash_position >= 0) {
++      var bracket_position = selector.indexOf('<');
++      if (bracket_position > hash_position) {
++        throw 'Syntax error, unrecognized expression: ' + selector;
++      }
++    }
++  }
++  return jquery_init.call(this, selector, context, rootjQuery);
++};
++$.fn.init.prototype = jquery_init.prototype;
++
++/**
+  * Attach all registered behaviors to a page element.
+  *
+  * Behaviors are event-triggered actions that attach to page elements, enhancing
+diff --git a/misc/vertical-tabs.js b/misc/vertical-tabs.js
+index 14d0660..ebfaa4f 100644
+--- a/misc/vertical-tabs.js
++++ b/misc/vertical-tabs.js
+@@ -50,8 +50,8 @@ Drupal.behaviors.verticalTabs = {
+       if (!tab_focus) {
+         // If the current URL has a fragment and one of the tabs contains an
+         // element that matches the URL fragment, activate that tab.
+-        if (window.location.hash && $(window.location.hash, this).length) {
+-          tab_focus = $(window.location.hash, this).closest('.vertical-tabs-pane');
++        if (window.location.hash && $(this).find(window.location.hash).length) {
++          tab_focus = $(this).find(window.location.hash).closest('.vertical-tabs-pane');
+         }
+         else {
+           tab_focus = $('> .vertical-tabs-pane:first', this);
+diff --git a/modules/book/book.pages.inc b/modules/book/book.pages.inc
+index 583eb7a..63a1d15 100644
+--- a/modules/book/book.pages.inc
++++ b/modules/book/book.pages.inc
+@@ -38,6 +38,15 @@ function book_render() {
+  *   format determined by the $type parameter.
+  */
+ function book_export($type, $nid) {
++  // Check that the node exists and that the current user has access to it.
++  $node = node_load($nid);
++  if (!$node) {
++    return MENU_NOT_FOUND;
++  }
++  if (!node_access('view', $node)) {
++    return MENU_ACCESS_DENIED;
++  }
++
+   $type = drupal_strtolower($type);
+ 
+   $export_function = 'book_export_' . $type;
+diff --git a/modules/book/book.test b/modules/book/book.test
+index d1f5273..2708e36 100644
+--- a/modules/book/book.test
++++ b/modules/book/book.test
+@@ -258,6 +258,13 @@ class BookTestCase extends DrupalWebTestCase {
+     // Try getting the URL directly, and verify it fails.
+     $this->drupalGet('book/export/html/' . $this->book->nid);
+     $this->assertResponse('403', t('Anonymous user properly forbidden.'));
++
++    // Now grant anonymous users permission to view the printer-friendly
++    // version and verify that node access restrictions still prevent them from
++    // seeing it.
++    user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('access printer-friendly version'));
++    $this->drupalGet('book/export/html/' . $this->book->nid);
++    $this->assertResponse('403', 'Anonymous user properly forbidden from seeing the printer-friendly version when denied by node access.');
+   }
+ 
+   /**
+diff --git a/modules/image/image.module b/modules/image/image.module
+index ff50452..d7178ad 100644
+--- a/modules/image/image.module
++++ b/modules/image/image.module
+@@ -30,6 +30,11 @@ define('IMAGE_STORAGE_EDITABLE', IMAGE_STORAGE_NORMAL | IMAGE_STORAGE_OVERRIDE);
+  */
+ define('IMAGE_STORAGE_MODULE', IMAGE_STORAGE_OVERRIDE | IMAGE_STORAGE_DEFAULT);
+ 
++/**
++ * The name of the query parameter for image derivative tokens.
++ */
++define('IMAGE_DERIVATIVE_TOKEN', 'itok');
++
+ // Load all Field module hooks for Image.
+ require_once DRUPAL_ROOT . '/modules/image/image.field.inc';
+ 
+@@ -292,7 +297,8 @@ function image_file_download($uri) {
+     if ($info = image_get_info($uri)) {
+       // Check the permissions of the original to grant access to this image.
+       $headers = module_invoke_all('file_download', $original_uri);
+-      if (!in_array(-1, $headers)) {
++      // Confirm there's at least one module granting access and none denying access.
++      if (!empty($headers) && !in_array(-1, $headers)) {
+         return array(
+           // Send headers describing the image's size, and MIME-type...
+           'Content-Type' => $info['mime_type'],
+@@ -765,16 +771,24 @@ function image_style_options($include_empty = TRUE) {
+  *   The image style
+  */
+ function image_style_deliver($style, $scheme) {
+-  // Check that the style is defined and the scheme is valid.
+-  if (!$style || !file_stream_wrapper_valid_scheme($scheme)) {
+-    drupal_exit();
+-  }
+-
+   $args = func_get_args();
+   array_shift($args);
+   array_shift($args);
+   $target = implode('/', $args);
+ 
++  // Check that the style is defined, the scheme is valid, and the image
++  // derivative token is valid. (Sites which require image derivatives to be
++  // generated without a token can set the 'image_allow_insecure_derivatives'
++  // variable to TRUE to bypass the latter check, but this will increase the
++  // site's vulnerability to denial-of-service attacks.)
++  $valid = !empty($style) && file_stream_wrapper_valid_scheme($scheme);
++  if (!variable_get('image_allow_insecure_derivatives', FALSE)) {
++    $valid = $valid && isset($_GET[IMAGE_DERIVATIVE_TOKEN]) && $_GET[IMAGE_DERIVATIVE_TOKEN] === image_style_path_token($style['name'], $scheme . '://' . $target);
++  }
++  if (!$valid) {
++    return MENU_ACCESS_DENIED;
++  }
++
+   $image_uri = $scheme . '://' . $target;
+   $derivative_uri = image_style_path($style['name'], $image_uri);
+ 
+@@ -959,6 +973,10 @@ function image_style_flush($style) {
+  */
+ function image_style_url($style_name, $path) {
+   $uri = image_style_path($style_name, $path);
++  // The token query is added even if the 'image_allow_insecure_derivatives'
++  // variable is TRUE, so that the emitted links remain valid if it is changed
++  // back to the default FALSE.
++  $token_query = array(IMAGE_DERIVATIVE_TOKEN => image_style_path_token($style_name, $path));
+ 
+   // If not using clean URLs, the image derivative callback is only available
+   // with the query string. If the file does not exist, use url() to ensure
+@@ -966,10 +984,33 @@ function image_style_url($style_name, $path) {
+   // actual file path, this avoids bootstrapping PHP once the files are built.
+   if (!variable_get('clean_url') && file_uri_scheme($uri) == 'public' && !file_exists($uri)) {
+     $directory_path = file_stream_wrapper_get_instance_by_uri($uri)->getDirectoryPath();
+-    return url($directory_path . '/' . file_uri_target($uri), array('absolute' => TRUE));
++    return url($directory_path . '/' . file_uri_target($uri), array('absolute' => TRUE, 'query' => $token_query));
+   }
+ 
+-  return file_create_url($uri);
++  $file_url = file_create_url($uri);
++  // Append the query string with the token.
++  return $file_url . (strpos($file_url, '?') !== FALSE ? '&' : '?') . drupal_http_build_query($token_query);
++}
++
++/**
++ * Generates a token to protect an image style derivative.
++ *
++ * This prevents unauthorized generation of an image style derivative,
++ * which can be costly both in CPU time and disk space.
++ *
++ * @param $style_name
++ *   The name of the image style.
++ * @param $uri
++ *   The URI of the image for this style, for example as returned by
++ *   image_style_path().
++ *
++ * @return
++ *   An eight-character token which can be used to protect image style
++ *   derivatives against denial-of-service attacks.
++ */
++function image_style_path_token($style_name, $uri) {
++  // Return the first eight characters.
++  return substr(drupal_hmac_base64($style_name . ':' . $uri, drupal_get_private_key() . drupal_get_hash_salt()), 0, 8);
+ }
+ 
+ /**
+diff --git a/modules/image/image.test b/modules/image/image.test
+index 1ca8465..d4db213 100644
+--- a/modules/image/image.test
++++ b/modules/image/image.test
+@@ -192,13 +192,19 @@ class ImageStylesPathAndUrlTestCase extends DrupalWebTestCase {
+     $this->assertNotIdentical(FALSE, $original_uri, t('Created the generated image file.'));
+ 
+     // Get the URL of a file that has not been generated and try to create it.
+-    $generated_uri = $scheme . '://styles/' . $this->style_name . '/' . $scheme . '/'. drupal_basename($original_uri);
++    $generated_uri = image_style_path($this->style_name, $original_uri);
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $generate_url = image_style_url($this->style_name, $original_uri);
+ 
+     if (!$clean_url) {
+       $this->assertTrue(strpos($generate_url, '?q=') !== FALSE, 'When using non-clean URLS, the system path contains the query string.');
+     }
++    // Add some extra chars to the token.
++    $this->drupalGet(str_replace(IMAGE_DERIVATIVE_TOKEN . '=', IMAGE_DERIVATIVE_TOKEN . '=Zo', $generate_url));
++    $this->assertResponse(403, 'Image was inaccessible at the URL wih an invalid token.');
++    // Change the parameter name so the token is missing.
++    $this->drupalGet(str_replace(IMAGE_DERIVATIVE_TOKEN . '=', 'wrongparam=', $generate_url));
++    $this->assertResponse(403, 'Image was inaccessible at the URL wih a missing token.');
+ 
+     // Fetch the URL that generates the file.
+     $this->drupalGet($generate_url);
+@@ -238,6 +244,11 @@ class ImageStylesPathAndUrlTestCase extends DrupalWebTestCase {
+         $this->assertNoRaw( chr(137) . chr(80) . chr(78) . chr(71) . chr(13) . chr(10) . chr(26) . chr(10), 'No PNG signature found in the response body.');
+       }
+     }
++    elseif ($clean_url) {
++      // Add some extra chars to the token.
++      $this->drupalGet(str_replace(IMAGE_DERIVATIVE_TOKEN . '=', IMAGE_DERIVATIVE_TOKEN . '=Zo', $generate_url));
++      $this->assertResponse(200, 'Existing image was accessible at the URL wih an invalid token.');
++    }
+   }
+ }
+ 
+@@ -661,7 +672,7 @@ class ImageAdminStylesUnitTest extends ImageFieldTestCase {
+ 
+     // Test that image is displayed using newly created style.
+     $this->drupalGet('node/' . $nid);
+-    $this->assertRaw(image_style_url($style_name, $node->{$field_name}[LANGUAGE_NONE][0]['uri']), t('Image displayed using style @style.', array('@style' => $style_name)));
++    $this->assertRaw(check_plain(image_style_url($style_name, $node->{$field_name}[LANGUAGE_NONE][0]['uri'])), t('Image displayed using style @style.', array('@style' => $style_name)));
+ 
+     // Rename the style and make sure the image field is updated.
+     $new_style_name = strtolower($this->randomName(10));
+@@ -671,7 +682,7 @@ class ImageAdminStylesUnitTest extends ImageFieldTestCase {
+     $this->drupalPost('admin/config/media/image-styles/edit/' . $style_name, $edit, t('Update style'));
+     $this->assertText(t('Changes to the style have been saved.'), t('Style %name was renamed to %new_name.', array('%name' => $style_name, '%new_name' => $new_style_name)));
+     $this->drupalGet('node/' . $nid);
+-    $this->assertRaw(image_style_url($new_style_name, $node->{$field_name}[LANGUAGE_NONE][0]['uri']), t('Image displayed using style replacement style.'));
++    $this->assertRaw(check_plain(image_style_url($new_style_name, $node->{$field_name}[LANGUAGE_NONE][0]['uri'])), t('Image displayed using style replacement style.'));
+ 
+     // Delete the style and choose a replacement style.
+     $edit = array(
+@@ -682,7 +693,7 @@ class ImageAdminStylesUnitTest extends ImageFieldTestCase {
+     $this->assertRaw($message, $message);
+ 
+     $this->drupalGet('node/' . $nid);
+-    $this->assertRaw(image_style_url('thumbnail', $node->{$field_name}[LANGUAGE_NONE][0]['uri']), t('Image displayed using style replacement style.'));
++    $this->assertRaw(check_plain(image_style_url('thumbnail', $node->{$field_name}[LANGUAGE_NONE][0]['uri'])), t('Image displayed using style replacement style.'));
+   }
+ }
+ 
+@@ -775,7 +786,9 @@ class ImageFieldDisplayTestCase extends ImageFieldTestCase {
+     // Ensure the derivative image is generated so we do not have to deal with
+     // image style callback paths.
+     $this->drupalGet(image_style_url('thumbnail', $image_uri));
+-    $image_info['path'] = image_style_path('thumbnail', $image_uri);
++    // Need to create the URL again since it will change if clean URLs
++    // are disabled.
++    $image_info['path'] = image_style_url('thumbnail', $image_uri);
+     $image_info['width'] = 100;
+     $image_info['height'] = 50;
+     $default_output = theme('image', $image_info);
+@@ -1061,7 +1074,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="120" height="60" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="120" height="60" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1082,7 +1095,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="60" height="120" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="60" height="120" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1104,7 +1117,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1126,7 +1139,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1144,7 +1157,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="45" height="90" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1165,7 +1178,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1185,7 +1198,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" width="30" height="30" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" width="30" height="30" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1206,7 +1219,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     $effect = image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" alt="" />', t('Expected img tag was found.'));
+     $this->assertFalse(file_exists($generated_uri), t('Generated file does not exist.'));
+     $this->drupalGet($url);
+     $this->assertResponse(200, t('Image was generated at the URL.'));
+@@ -1224,7 +1237,7 @@ class ImageDimensionsTestCase extends DrupalWebTestCase {
+ 
+     image_effect_save($effect);
+     $img_tag = theme_image_style($variables);
+-    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . $url . '" alt="" />', t('Expected img tag was found.'));
++    $this->assertEqual($img_tag, '<img typeof="foaf:Image" src="' . check_plain($url) . '" alt="" />', t('Expected img tag was found.'));
+   }
+ }
+ 
+@@ -1642,7 +1655,7 @@ class ImageThemeFunctionWebTestCase extends DrupalWebTestCase {
+       ),
+     );
+     $rendered_element = render($element);
+-    $expected_result = '<a href="' . url($path) . '"><img typeof="foaf:Image" src="' . $url . '" alt="" /></a>';
++    $expected_result = '<a href="' . url($path) . '"><img typeof="foaf:Image" src="' . check_plain($url) . '" alt="" /></a>';
+     $this->assertEqual($expected_result, $rendered_element, 'theme_image_formatter() correctly renders without title, alt, or path options.');
+ 
+     // Link the image to a fragment on the page, and not a full URL.
+@@ -1653,7 +1666,7 @@ class ImageThemeFunctionWebTestCase extends DrupalWebTestCase {
+       'fragment' => $fragment,
+     );
+     $rendered_element = render($element);
+-    $expected_result = '<a href="#' . $fragment . '"><img typeof="foaf:Image" src="' . $url . '" alt="" /></a>';
++    $expected_result = '<a href="#' . $fragment . '"><img typeof="foaf:Image" src="' . check_plain($url) . '" alt="" /></a>';
+     $this->assertEqual($expected_result, $rendered_element, 'theme_image_formatter() correctly renders a link fragment.');
+   }
+ 
+diff --git a/modules/user/user.test b/modules/user/user.test
+index 123beee..26e93ed 100644
+--- a/modules/user/user.test
++++ b/modules/user/user.test
+@@ -968,7 +968,7 @@ class UserPictureTestCase extends DrupalWebTestCase {
+       $this->assertRaw($text, t('Image was resized.'));
+       $alt = t("@user's picture", array('@user' => format_username($this->user)));
+       $style = variable_get('user_picture_style', '');
+-      $this->assertRaw(image_style_url($style, $pic_path), t("Image is displayed in user's edit page"));
++      $this->assertRaw(check_plain(image_style_url($style, $pic_path)), t("Image is displayed in user's edit page"));
+ 
+       // Check if file is located in proper directory.
+       $this->assertTrue(is_file($pic_path), t("File is located in proper directory"));
