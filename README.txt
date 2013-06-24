@@ -1,14 +1,14 @@
 OVERVIEW
 
-This series of patches allows for incremental upgrades between drupal versions. The patches modify only the files affected by the upgrade, and leave all other files untouched.
+This series of patches allows for incremental upgrades between releases of drupal and various drupal distributtions. The patches modify only the files affected by the upgrade, leaving all other files untouched.
 
 USAGE:
 
-The patches are labeled in two ways: version_to_version, and single version.  Single versions are incremental patches from the version which precedes to the version in the title (i.e., 6.11 is 6.10 to 6.11). These patches MUST be applied incrementally, you cannot jump version numbers.  So, 6.10 to 6.11 is fine, 6.10 to 6.22 is NOT FINE.  Be sure to apply the patch which corresponds to your distribution of drupal.
+Patches are labeled in two ways: version_to_version, and single version.  Single versions are incremental patches from the version which precedes to the version in the title (i.e., 6.11 is 6.10 to 6.11). These patches MUST be applied incrementally, you cannot jump version numbers.  So, 6.10 to 6.11 is fine, 6.10 to 6.22 is NOT FINE.  Be sure to apply the patch which corresponds to your distribution of drupal.
 
 Version_to_version patches are just that, and include all the versions in-between.  This can mean a variety of bug-fixes and new features to work through in testing, but is much faster than the incremental patches.
 
-There are a few patches for moving from drupal to pressflow.  They seem to work fine, so far.
+In addition, there are patch files for Pressflow, Drupal to Pressflow, and a small collection of patches for distributions such as OpenAtrium.  Others of these may be added.
 
 Patches must be run either:
 
@@ -26,7 +26,7 @@ The packing script version information is not required to ascertain the correct 
 ACQUIA DRUPAL/PROFILE CONFLICTS
 Updating an entire profile, whether Acquia Drupal, OpenPublish, etc., often means updating all included modules as well.  This can be a problem with applying unnecessary module updates.  As a result, we often recommend moving away from the profile.  This usually means simply updating modules by placing them in the sites/all/modules directory, which is prioritized over any modules in profiles/profile/modules.  However, Acquia Drupal has a file that indicates whether it is an AD site, and this file must be edited in order to prevent core version reporting conflicts.
 
-You may run: run: acquiadrupal-false.sh
+You may run: acquiadrupal-false.sh
 or
 Manually modify: profiles/acquia/modules/acquia_connector/acquia_agent/acquia_agent_drupal_version.inc.
 Change: define('IS_ACQUIA_DRUPAL', TRUE); to FALSE.
