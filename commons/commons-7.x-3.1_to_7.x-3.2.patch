@@ -1,0 +1,50 @@
+diff --git a/build_distro.sh b/build_distro.sh
+index 714f5ca..801a7b9 100755
+--- a/build_distro.sh
++++ b/build_distro.sh
+@@ -24,6 +24,7 @@ pull_git() {
+ 
+ release_notes() {
+   rm -rf rn.txt
++  pull_git $BUILD_PATH
+   OUTPUT="<h2>Release Notes for $RELEASE</h2>"
+   cd $BUILD_PATH/commons_profile
+   OUTPUT="$OUTPUT <h3>Commons Profile:</h3> `drush rn --date $FROM_DATE $TO_DATE`"
+@@ -38,6 +39,12 @@ release_notes() {
+     fi
+     cd ..
+   done
++  cd $BUILD_PATH/repos/themes/commons_origins
++  RN=`drush rn --date $FROM_DATE $TO_DATE`
++  if [[ -n $RN ]]; then
++    OUTPUT="$OUTPUT <h3>commons_origins:</h3> $RN"
++  fi
++
+   echo $OUTPUT >> $BUILD_PATH/rn.txt
+ }
+ 
+diff --git a/drupal-org.make b/drupal-org.make
+index 4236b85..998357c 100644
+--- a/drupal-org.make
++++ b/drupal-org.make
+@@ -49,10 +49,7 @@ projects[ckeditor][patch][] = "http://drupal.org/files/ckeditor-install-lib-1898
+ 
+ projects[ctools][type] = "module"
+ projects[ctools][subdir] = "contrib"
+-projects[ctools][version] = "1.2"
+-
+-; http://drupal.org/node/1494860#comment-6204438
+-projects[ctools][patch][] = "http://drupal.org/files/ctools-dependent-js-broken-with-jquery-1.7-1494860-30.patch"
++projects[ctools][version] = "1.3"
+ 
+ projects[custom_search][type] = "module"
+ projects[custom_search][subdir] = "contrib"
+@@ -308,7 +305,7 @@ projects[sharethis][version] = "2.5"
+ 
+ projects[facetapi][type] = "module"
+ projects[facetapi][subdir] = "contrib"
+-projects[facetapi][version] = "1.2"
++projects[facetapi][version] = "1.3"
+ 
+ projects[rich_snippets][type] = "module"
+ projects[rich_snippets][subdir] = "contrib"
