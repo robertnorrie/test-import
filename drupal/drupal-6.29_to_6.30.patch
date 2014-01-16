@@ -1,0 +1,291 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index ddfdf2c..b36af69 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 6.30, 2014-01-15
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2014-001.
++
+ Drupal 6.29, 2013-11-20
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-003.
+diff --git a/includes/common.inc b/includes/common.inc
+index 27ed5cd..80fc911 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -991,7 +991,7 @@ function t($string, $args = array(), $langcode = NULL) {
+ /**
+  * Verifies the syntax of the given e-mail address.
+  *
+- * See RFC 2822 for details.
++ * See @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink for details.
+  *
+  * @param $mail
+  *   A string containing an e-mail address.
+diff --git a/includes/form.inc b/includes/form.inc
+index 1b0e057..466410e 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -302,7 +302,7 @@ function drupal_execute($form_id, &$form_state) {
+ 
+   // Make sure $form_state is passed around by reference.
+   $args[1] = &$form_state;
+-  
++
+   $form = call_user_func_array('drupal_retrieve_form', $args);
+   $form['#post'] = $form_state['values'];
+ 
+@@ -779,8 +779,8 @@ function form_execute_handlers($type, &$form, &$form_state) {
+ 
+   foreach ($handlers as $function) {
+     if (function_exists($function))  {
+-      // Check to see if a previous _submit handler has set a batch, but 
+-      // make sure we do not react to a batch that is already being processed 
++      // Check to see if a previous _submit handler has set a batch, but
++      // make sure we do not react to a batch that is already being processed
+       // (for instance if a batch operation performs a drupal_execute()).
+       if ($type == 'submit' && ($batch =& batch_get()) && !isset($batch['current_set'])) {
+         // Some previous _submit handler has set a batch. We store the call
+@@ -2431,8 +2431,8 @@ function form_clean_id($id = NULL, $flush = FALSE) {
+  *   - 'init_message': Message displayed while the processing is initialized.
+  *     Defaults to t('Initializing.').
+  *   - 'progress_message': Message displayed while processing the batch.
+- *     Available placeholders are @current, @remaining, @total, @percentage,
+- *     @estimate and @elapsed. Defaults to t('Completed @current of @total.').
++ *     Available placeholders are @current, @remaining, @total, and
++ *     @percentage. Defaults to t('Completed @current of @total.').
+  *   - 'error_message': Message displayed if an error occurred while processing
+  *     the batch. Defaults to t('An error has occurred.').
+  *   - 'finished': Name of a function to be executed after the batch has
+diff --git a/includes/mail.inc b/includes/mail.inc
+index a778ac5..d0515ac 100644
+--- a/includes/mail.inc
++++ b/includes/mail.inc
+@@ -59,11 +59,13 @@
+  *   will be {$module}_{$key}.
+  * @param $to
+  *   The e-mail address or addresses where the message will be sent to. The
+- *   formatting of this string must comply with RFC 2822. Some examples are:
+- *    user@example.com
+- *    user@example.com, anotheruser@example.com
+- *    User <user@example.com>
+- *    User <user@example.com>, Another User <anotheruser@example.com>
++ *   formatting of this string must comply with
++ *   @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *   Some examples are:
++ *   - user@example.com
++ *   - user@example.com, anotheruser@example.com
++ *   - User <user@example.com>
++ *   - User <user@example.com>, Another User <anotheruser@example.com>
+  * @param $language
+  *   Language object to use to compose the e-mail.
+  * @param $params
+@@ -72,6 +74,7 @@
+  *   Sets From to this value, if given.
+  * @param $send
+  *   Send the message directly, without calling drupal_mail_send() manually.
++ *
+  * @return
+  *   The $message array structure containing all details of the
+  *   message. If already sent ($send = TRUE), then the 'result' element
+@@ -145,26 +148,24 @@ function drupal_mail($module, $key, $to, $language, $params = array(), $from = N
+  * how $message is composed.
+  *
+  * @param $message
+- *  Message array with at least the following elements:
+- *   - id
+- *      A unique identifier of the e-mail type. Examples: 'contact_user_copy',
+- *      'user_password_reset'.
+- *   - to
+- *      The mail address or addresses where the message will be sent to. The
+- *      formatting of this string must comply with RFC 2822. Some examples are:
+- *       user@example.com
+- *       user@example.com, anotheruser@example.com
+- *       User <user@example.com>
+- *       User <user@example.com>, Another User <anotheruser@example.com>
+- *   - subject
+- *      Subject of the e-mail to be sent. This must not contain any newline
+- *      characters, or the mail may not be sent properly.
+- *   - body
+- *      Message to be sent. Accepts both CRLF and LF line-endings.
+- *      E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
+- *      smart plain text wrapping.
+- *   - headers
+- *      Associative array containing all mail headers.
++ *   Message array with at least the following elements:
++ *   - id: A unique identifier of the e-mail type. Examples:
++ *     'contact_user_copy', 'user_password_reset'.
++ *   - to: The mail address or addresses where the message will be sent to. The
++ *     formatting of this string must comply with
++ *     @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *     Some examples are:
++ *     - user@example.com
++ *     - user@example.com, anotheruser@example.com
++ *     - User <user@example.com>
++ *     - User <user@example.com>, Another User <anotheruser@example.com>
++ *   - subject: Subject of the e-mail to be sent. This must not contain any
++ *     newline characters, or the mail may not be sent properly.
++ *   - body: Message to be sent. Accepts both CRLF and LF line-endings.
++ *     E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
++ *     smart plain text wrapping.
++ *   - headers: Associative array containing all mail headers.
++ *
+  * @return
+  *   Returns TRUE if the mail was successfully accepted for delivery,
+  *   FALSE otherwise.
+@@ -254,6 +255,7 @@ function drupal_wrap_mail($text, $indent = '') {
+  * @param $allowed_tags (optional)
+  *   If supplied, a list of tags that will be transformed. If omitted, all
+  *   all supported tags are transformed.
++ *
+  * @return
+  *   The transformed string.
+  */
+diff --git a/modules/openid/openid.install b/modules/openid/openid.install
+index 0abc24f..0b0c95d 100644
+--- a/modules/openid/openid.install
++++ b/modules/openid/openid.install
+@@ -26,13 +26,14 @@ function openid_schema() {
+       'idp_endpoint_uri' => array(
+         'type' => 'varchar',
+         'length' => 255,
+-        'description' => 'URI of the OpenID Provider endpoint.',
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
+       ),
+       'assoc_handle' => array(
+         'type' => 'varchar',
+         'length' => 255,
+         'not null' => TRUE,
+-        'description' => 'Primary Key: Used to refer to this association in subsequent messages.',
++        'description' => 'Used to refer to this association in subsequent messages.',
+       ),
+       'assoc_type' => array(
+         'type' => 'varchar',
+@@ -62,7 +63,10 @@ function openid_schema() {
+         'description' => 'The lifetime, in seconds, of this association.',
+       ),
+     ),
+-    'primary key' => array('assoc_handle'),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
+   );
+ 
+   $schema['openid_nonce'] = array(
+@@ -139,6 +143,68 @@ function openid_update_6000() {
+ }
+ 
+ /**
++ * Bind associations to their providers.
++ */
++function openid_update_6001() {
++  $ret = array();
++
++  db_drop_table($ret, 'openid_association');
++
++  $schema['openid_association'] = array(
++    'description' => 'Stores temporary shared key association information for OpenID authentication.',
++    'fields' => array(
++      'idp_endpoint_uri' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
++      ),
++      'assoc_handle' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Used to refer to this association in subsequent messages.',
++      ),
++      'assoc_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'The signature algorithm used: one of HMAC-SHA1 or HMAC-SHA256.',
++      ),
++      'session_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'Valid association session types: "no-encryption", "DH-SHA1", and "DH-SHA256".',
++      ),
++      'mac_key' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'description' => 'The MAC key (shared secret) for this association.',
++      ),
++      'created' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'UNIX timestamp for when the association was created.',
++      ),
++      'expires_in' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'The lifetime, in seconds, of this association.',
++      ),
++    ),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
++  );
++
++  db_create_table($ret, 'openid_association', $schema['openid_association']);
++
++  return $ret;
++}
++
++/**
+  * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index 809e07e..4a7c57b 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -551,7 +551,7 @@ function openid_verify_assertion($service, $response) {
+   // http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4
+   // Verify the signatures.
+   $valid = FALSE;
+-  $association = db_fetch_object(db_query("SELECT * FROM {openid_association} WHERE assoc_handle = '%s'", $response['openid.assoc_handle']));
++  $association = db_fetch_object(db_query("SELECT * FROM {openid_association} WHERE idp_endpoint_uri = '%s' AND assoc_handle = '%s'", $service['uri'], $response['openid.assoc_handle']));
+   if ($association && isset($association->session_type)) {
+     // http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4.2
+     // Verification using an association.
+diff --git a/modules/system/system.install b/modules/system/system.install
+index acacd39..33f4c4d 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -1,12 +1,7 @@
+ <?php
+ 
+ /**
+- * Test and report Drupal installation requirements.
+- *
+- * @param $phase
+- *   The current system installation phase.
+- * @return
+- *   An array of system requirements.
++ * Implementation of hook_requirements().
+  */
+ function system_requirements($phase) {
+   $requirements = array();
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 09732c9..09b9dde 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.29');
++define('VERSION', '6.30');
+ 
+ /**
+  * Core API compatibility.
