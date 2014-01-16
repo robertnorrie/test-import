@@ -1,0 +1,351 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 00d4d71..9f1bcf1 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.26, 2014-01-15
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-001.
++
+ Drupal 7.25, 2014-01-02
+ -----------------------
+ - Fixed a bug in node_save() which prevented the saved node from being updated
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index f6ffea5..e5de2d1 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.25');
++define('VERSION', '7.26');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/form.inc b/includes/form.inc
+index fcfc796..4e467ba 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -235,6 +235,12 @@ function drupal_get_form($form_id) {
+  *     likely to occur during Ajax operations.
+  *   - programmed: If TRUE, the form was submitted programmatically, usually
+  *     invoked via drupal_form_submit(). Defaults to FALSE.
++ *   - programmed_bypass_access_check: If TRUE, programmatic form submissions
++ *     are processed without taking #access into account. Set this to FALSE
++ *     when submitting a form programmatically with values that may have been
++ *     input by the user executing the current request; this will cause #access
++ *     to be respected as it would on a normal form submission. Defaults to
++ *     TRUE.
+  *   - process_input: Boolean flag. TRUE signifies correct form submission.
+  *     This is always TRUE for programmed forms coming from drupal_form_submit()
+  *     (see 'programmed' key), or if the form_id coming from the $_POST data is
+@@ -402,6 +408,7 @@ function form_state_defaults() {
+     'submitted' => FALSE,
+     'executed' => FALSE,
+     'programmed' => FALSE,
++    'programmed_bypass_access_check' => TRUE,
+     'cache'=> FALSE,
+     'method' => 'post',
+     'groups' => array(),
+@@ -1985,7 +1992,7 @@ function _form_builder_handle_input_element($form_id, &$element, &$form_state) {
+   // #access=FALSE on an element usually allow access for some users, so forms
+   // submitted with drupal_form_submit() may bypass access restriction and be
+   // treated as high-privilege users instead.
+-  $process_input = empty($element['#disabled']) && ($form_state['programmed'] || ($form_state['process_input'] && (!isset($element['#access']) || $element['#access'])));
++  $process_input = empty($element['#disabled']) && (($form_state['programmed'] && $form_state['programmed_bypass_access_check']) || ($form_state['process_input'] && (!isset($element['#access']) || $element['#access'])));
+ 
+   // Set the element's #value property.
+   if (!isset($element['#value']) && !array_key_exists('#value', $element)) {
+diff --git a/modules/openid/openid.install b/modules/openid/openid.install
+index 4b77b71..e382d86 100644
+--- a/modules/openid/openid.install
++++ b/modules/openid/openid.install
+@@ -15,13 +15,14 @@ function openid_schema() {
+       'idp_endpoint_uri' => array(
+         'type' => 'varchar',
+         'length' => 255,
+-        'description' => 'URI of the OpenID Provider endpoint.',
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
+       ),
+       'assoc_handle' => array(
+         'type' => 'varchar',
+         'length' => 255,
+         'not null' => TRUE,
+-        'description' => 'Primary Key: Used to refer to this association in subsequent messages.',
++        'description' => 'Used to refer to this association in subsequent messages.',
+       ),
+       'assoc_type' => array(
+         'type' => 'varchar',
+@@ -51,7 +52,10 @@ function openid_schema() {
+         'description' => 'The lifetime, in seconds, of this association.',
+       ),
+     ),
+-    'primary key' => array('assoc_handle'),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
+   );
+ 
+   $schema['openid_nonce'] = array(
+@@ -158,3 +162,69 @@ function openid_update_6000() {
+ /**
+  * @} End of "addtogroup updates-6.x-to-7.x".
+  */
++
++/**
++ * @addtogroup updates-7.x-extra
++ * @{
++ */
++
++/**
++ * Bind associations to their providers.
++ */
++function openid_update_7000() {
++  db_drop_table('openid_association');
++
++  $schema = array(
++    'description' => 'Stores temporary shared key association information for OpenID authentication.',
++    'fields' => array(
++      'idp_endpoint_uri' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
++      ),
++      'assoc_handle' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Used to refer to this association in subsequent messages.',
++      ),
++      'assoc_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'The signature algorithm used: one of HMAC-SHA1 or HMAC-SHA256.',
++      ),
++      'session_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'Valid association session types: "no-encryption", "DH-SHA1", and "DH-SHA256".',
++      ),
++      'mac_key' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'description' => 'The MAC key (shared secret) for this association.',
++      ),
++      'created' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'UNIX timestamp for when the association was created.',
++      ),
++      'expires_in' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'The lifetime, in seconds, of this association.',
++      ),
++    ),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
++  );
++  db_create_table('openid_association', $schema);
++}
++
++/**
++ * @} End of "addtogroup updates-7.x-extra".
++ */
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index 1f764e0..a28f452 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -839,7 +839,7 @@ function openid_verify_assertion($service, $response) {
+   // direct verification: ignore the openid.assoc_handle, even if present.
+   // See http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4.1
+   if (!empty($response['openid.assoc_handle']) && empty($response['openid.invalidate_handle'])) {
+-    $association = db_query("SELECT * FROM {openid_association} WHERE assoc_handle = :assoc_handle", array(':assoc_handle' => $response['openid.assoc_handle']))->fetchObject();
++    $association = db_query("SELECT * FROM {openid_association} WHERE idp_endpoint_uri = :endpoint AND assoc_handle = :assoc_handle", array(':endpoint' => $service['uri'], ':assoc_handle' => $response['openid.assoc_handle']))->fetchObject();
+   }
+ 
+   if ($association && isset($association->session_type)) {
+@@ -871,6 +871,7 @@ function openid_verify_assertion($service, $response) {
+           // database to avoid reusing it again on a subsequent authentication request.
+           // See http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4.2.2
+           db_delete('openid_association')
++            ->condition('idp_endpoint_uri', $service['uri'])
+             ->condition('assoc_handle', $response['invalidate_handle'])
+             ->execute();
+         }
+diff --git a/modules/simpletest/tests/form.test b/modules/simpletest/tests/form.test
+index 8b63be4..1d430b5 100644
+--- a/modules/simpletest/tests/form.test
++++ b/modules/simpletest/tests/form.test
+@@ -1486,6 +1486,16 @@ class FormsProgrammaticTestCase extends DrupalWebTestCase {
+     $this->submitForm(array('textfield' => 'dummy value', 'checkboxes' => array(1 => NULL, 2 => 2)), TRUE);
+     $this->submitForm(array('textfield' => 'dummy value', 'checkboxes' => array(1 => NULL, 2 => NULL)), TRUE);
+ 
++    // Test that a programmatic form submission can successfully submit values
++    // even for fields where the #access property is FALSE.
++    $this->submitForm(array('textfield' => 'dummy value', 'textfield_no_access' => 'test value'), TRUE);
++    // Test that #access is respected for programmatic form submissions when
++    // requested to do so.
++    $submitted_values = array('textfield' => 'dummy value', 'textfield_no_access' => 'test value');
++    $expected_values = array('textfield' => 'dummy value', 'textfield_no_access' => 'default value');
++    $form_state = array('programmed_bypass_access_check' => FALSE);
++    $this->submitForm($submitted_values, TRUE, $expected_values, $form_state);
++
+     // Test that a programmatic form submission can correctly click a button
+     // that limits validation errors based on user input. Since we do not
+     // submit any values for "textfield" here and the textfield is required, we
+@@ -1508,10 +1518,18 @@ class FormsProgrammaticTestCase extends DrupalWebTestCase {
+    * @param $valid_input
+    *   A boolean indicating whether or not the form submission is expected to
+    *   be valid.
++   * @param $expected_values
++   *   (Optional) An array of field values that are expected to be stored by
++   *   the form submit handler. If not set, the submitted $values are assumed
++   *   to also be the expected stored values.
++   * @param $form_state
++   *   (Optional) A keyed array containing the state of the form, to be sent in
++   *   the call to drupal_form_submit(). The $values parameter is added to
++   *   $form_state['values'] by default, if it is not already set.
+    */
+-  private function submitForm($values, $valid_input) {
++  private function submitForm($values, $valid_input, $expected_values = NULL, $form_state = array()) {
+     // Programmatically submit the given values.
+-    $form_state = array('values' => $values);
++    $form_state += array('values' => $values);
+     drupal_form_submit('form_test_programmatic_form', $form_state);
+ 
+     // Check that the form returns an error when expected, and vice versa.
+@@ -1528,7 +1546,10 @@ class FormsProgrammaticTestCase extends DrupalWebTestCase {
+       // By fetching the values from $form_state['storage'] we ensure that the
+       // submission handler was properly executed.
+       $stored_values = $form_state['storage']['programmatic_form_submit'];
+-      foreach ($values as $key => $value) {
++      if (!isset($expected_values)) {
++        $expected_values = $values;
++      }
++      foreach ($expected_values as $key => $value) {
+         $this->assertTrue(isset($stored_values[$key]) && $stored_values[$key] == $value, format_string('Submission handler correctly executed: %stored_key is %stored_value', array('%stored_key' => $key, '%stored_value' => print_r($value, TRUE))));
+       }
+     }
+diff --git a/modules/simpletest/tests/form_test.module b/modules/simpletest/tests/form_test.module
+index b4d2f54..c7885d7 100644
+--- a/modules/simpletest/tests/form_test.module
++++ b/modules/simpletest/tests/form_test.module
+@@ -1548,6 +1548,15 @@ function form_test_programmatic_form($form, &$form_state) {
+     '#default_value' => array(1, 2),
+   );
+ 
++  // This is used to test that programmatic form submissions can bypass #access
++  // restrictions.
++  $form['textfield_no_access'] = array(
++    '#type' => 'textfield',
++    '#title' => 'Textfield no access',
++    '#default_value' => 'default value',
++    '#access' => FALSE,
++  );
++
+   $form['field_to_validate'] = array(
+     '#type' => 'radios',
+     '#title' => 'Field to validate (in the case of limited validation)',
+diff --git a/modules/simpletest/tests/upgrade/upgrade.taxonomy.test b/modules/simpletest/tests/upgrade/upgrade.taxonomy.test
+index e0142f4..58a4d5c 100644
+--- a/modules/simpletest/tests/upgrade/upgrade.taxonomy.test
++++ b/modules/simpletest/tests/upgrade/upgrade.taxonomy.test
+@@ -56,6 +56,11 @@ class UpgradePathTaxonomyTestCase extends UpgradePathTestCase {
+     $this->assertFalse(db_table_exists('taxonomy_vocabulary_node_type'), 'taxonomy_vocabulary_node_type has been removed.');
+     $this->assertFalse(db_table_exists('taxonomy_term_node'), 'taxonomy_term_node has been removed.');
+ 
++    // Check that taxonomy_index has not stored nids of unpublished nodes.
++    $nids = db_query('SELECT nid from {node} WHERE status = :status', array(':status' => NODE_NOT_PUBLISHED))->fetchCol();
++    $indexed_nids = db_query('SELECT DISTINCT nid from {taxonomy_index}')->fetchCol();
++    $this->assertFalse(array_intersect($nids, $indexed_nids), 'No unpublished nid present in taxonomy_index');
++
+     // Check that the node type 'page' has been associated to a taxonomy
+     // reference field for each vocabulary.
+     $voc_keys = array();
+diff --git a/modules/taxonomy/taxonomy.install b/modules/taxonomy/taxonomy.install
+index 2d44d3d..e3603e1 100644
+--- a/modules/taxonomy/taxonomy.install
++++ b/modules/taxonomy/taxonomy.install
+@@ -638,6 +638,10 @@ function taxonomy_update_7005(&$sandbox) {
+           'type' => 'int',
+           'not null' => FALSE,
+         ),
++        'status' => array(
++          'type' => 'int',
++          'not null' => FALSE,
++        ),
+         'is_current' => array(
+           'type' => 'int',
+           'unsigned' => TRUE,
+@@ -670,6 +674,7 @@ function taxonomy_update_7005(&$sandbox) {
+     $query->addField('n', 'type');
+     $query->addField('n2', 'created');
+     $query->addField('n2', 'sticky');
++    $query->addField('n2', 'status');
+     $query->addField('n2', 'nid', 'is_current');
+     // This query must return a consistent ordering across multiple calls.
+     // We need them ordered by node vid (since we use that to decide when
+@@ -698,7 +703,7 @@ function taxonomy_update_7005(&$sandbox) {
+     // We do each pass in batches of 1000.
+     $batch = 1000;
+ 
+-    $result = db_query_range('SELECT vocab_id, tid, nid, vid, type, created, sticky, is_current FROM {taxonomy_update_7005} ORDER BY n', $sandbox['last'], $batch);
++    $result = db_query_range('SELECT vocab_id, tid, nid, vid, type, created, sticky, status, is_current FROM {taxonomy_update_7005} ORDER BY n', $sandbox['last'], $batch);
+     if (isset($sandbox['cursor'])) {
+       $values = $sandbox['cursor']['values'];
+       $deltas = $sandbox['cursor']['deltas'];
+@@ -765,12 +770,14 @@ function taxonomy_update_7005(&$sandbox) {
+       // is_current column is a node ID if this revision is also current.
+       if ($record->is_current) {
+         db_insert($table_name)->fields($columns)->values($values)->execute();
+-
+-        // Update the {taxonomy_index} table.
+-        db_insert('taxonomy_index')
+-          ->fields(array('nid', 'tid', 'sticky', 'created',))
+-          ->values(array($record->nid, $record->tid, $record->sticky, $record->created))
+-          ->execute();
++        // Only insert a record in the taxonomy index if the node is published.
++        if ($record->status) {
++          // Update the {taxonomy_index} table.
++          db_insert('taxonomy_index')
++            ->fields(array('nid', 'tid', 'sticky', 'created',))
++            ->values(array($record->nid, $record->tid, $record->sticky, $record->created))
++            ->execute();
++        }
+       }
+     }
+ 
+@@ -888,3 +895,23 @@ function taxonomy_update_7010() {
+   ));
+ }
+ 
++/**
++ * @addtogroup updates-7.x-extra
++ * @{
++ */
++
++/**
++ * Drop unpublished nodes from the index.
++ */
++function taxonomy_update_7011() {
++  $nids = db_query('SELECT nid from {node} WHERE status = :status', array(':status' => NODE_NOT_PUBLISHED))->fetchCol();
++  if (!empty($nids)) {
++    db_delete('taxonomy_index')
++      ->condition('nid', $nids)
++      ->execute();
++  }
++}
++
++/**
++ * @} End of "addtogroup updates-7.x-extra".
++ */
