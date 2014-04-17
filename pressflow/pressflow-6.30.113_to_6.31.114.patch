@@ -1,0 +1,195 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 5bbf1e1..a858e06 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,3 +1,8 @@
++
++Drupal 6.31, 2014-04-16
++----------------------
++- Fixed security issues (information disclosure). See SA-CORE-2014-002.
++
+ Drupal 6.30, 2014-01-15
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities), see SA-CORE-2014-001.
+diff --git a/includes/form.inc b/includes/form.inc
+index 8d8c2af..612fd3e 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -226,10 +226,25 @@ function form_set_cache($form_build_id, $form, $form_state) {
+   if ($user->uid) {
+     $form['#cache_token'] = drupal_get_token();
+   }
++  elseif (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && drupal_page_is_cacheable()) {
++    $form['#immutable'] = TRUE;
++  }
++  $form_build_id_old = $form_build_id;
++  $form_build_id = form_build_id_map($form_build_id_old);
+   cache_set('form_'. $form_build_id, $form, 'cache_form', time() + $expire);
+   if (!empty($form_state['storage'])) {
+     cache_set('storage_'. $form_build_id, $form_state['storage'], 'cache_form', time() + $expire);
+   }
++
++  // If form_set_cache is called in the context of an ahah handler inform the
++  // client about the changed form build_id via the X-Drupal-Build-Id HTTP
++  // header.
++  if (!empty($_SERVER['HTTP_X_DRUPAL_ACCEPT_BUILD_ID']) &&
++    !empty($_POST['form_build_id']) &&
++    $_POST['form_build_id'] == $form_build_id_old &&
++    $form_build_id_old != $form_build_id) {
++    drupal_set_header('X-Drupal-Build-Id: ' . $form_build_id);
++  }
+ }
+ 
+ /**
+@@ -243,12 +258,36 @@ function form_get_cache($form_build_id, &$form_state) {
+       if ($cached = cache_get('storage_'. $form_build_id, 'cache_form')) {
+         $form_state['storage'] = $cached->data;
+       }
++
++      // Generate a new #build_id if the cached form was rendered on a cacheable
++      // page.
++      if (!empty($form['#immutable'])) {
++        $form['#build_id'] = 'form-' . drupal_random_key();
++        $form['form_build_id']['#value'] = $form['#build_id'];
++        $form['form_build_id']['#id'] = $form['#build_id'];
++        unset($form['#immutable']);
++
++        form_build_id_map($form_build_id, $form['#build_id']);
++      }
+       return $form;
+     }
+   }
+ }
+ 
+ /**
++ * Maintain a map of immutable form_build_ids to cloned form.
++ */
++function form_build_id_map($form_build_id, $new_build_id = NULL) {
++  static $build_id_map = array();
++
++  if (isset($new_build_id) && isset($form_build_id)) {
++    $build_id_map[$form_build_id] = $new_build_id;
++  }
++
++  return isset($build_id_map[$form_build_id]) ? $build_id_map[$form_build_id] : $form_build_id;
++}
++
++/**
+  * Retrieves, populates, and processes a form.
+  *
+  * This function allows you to supply values for form elements and submit a
+@@ -1798,6 +1837,8 @@ function expand_radios($element) {
+  *   drupal_add_js.
+  */
+ function form_expand_ahah($element) {
++  global $user;
++
+   static $js_added = array();
+   // Add a reasonable default event handler if none specified.
+   if (isset($element['#ahah']['path']) && !isset($element['#ahah']['event'])) {
+@@ -1844,6 +1885,11 @@ function form_expand_ahah($element) {
+       'button'   => isset($element['#executes_submit_callback']) ? array($element['#name'] => $element['#value']) : FALSE,
+     );
+ 
++    // If page caching is active, indicate that this form is immutable.
++    if (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && !$user->uid && drupal_page_is_cacheable()) {
++      $ahah_binding['immutable'] = TRUE;
++    }
++
+     // Convert a simple #ahah[progress] type string into an array.
+     if (is_string($ahah_binding['progress'])) {
+       $ahah_binding['progress'] = array('type' => $ahah_binding['progress']);
+diff --git a/misc/ahah.js b/misc/ahah.js
+index 118c4de..e2a8659 100644
+--- a/misc/ahah.js
++++ b/misc/ahah.js
+@@ -44,6 +44,8 @@ Drupal.ahah = function(base, element_settings) {
+   this.method = element_settings.method;
+   this.progress = element_settings.progress;
+   this.button = element_settings.button || { };
++  this.immutable = element_settings.immutable;
++  this.buildId = null;
+ 
+   if (this.effect == 'none') {
+     this.showEffect = 'show';
+@@ -76,6 +78,9 @@ Drupal.ahah = function(base, element_settings) {
+     beforeSubmit: function(form_values, element_settings, options) {
+       return ahah.beforeSubmit(form_values, element_settings, options);
+     },
++    beforeSend: function(request, options) {
++      return ahah.beforeSend(request, options);
++    },
+     success: function(response, status) {
+       // Sanity check for browser support (object expected).
+       // When using iFrame uploads, responses must be returned as a string.
+@@ -85,6 +90,7 @@ Drupal.ahah = function(base, element_settings) {
+       return ahah.success(response, status);
+     },
+     complete: function(response, status) {
++      ahah.complete(response, status);
+       if (status == 'error' || status == 'parsererror') {
+         return ahah.error(response, ahah.url);
+       }
+@@ -139,9 +145,29 @@ Drupal.ahah.prototype.beforeSubmit = function (form_values, element, options) {
+     }
+     $(this.element).after(this.progress.element);
+   }
++
++  // Record the build-id.
++  if (this.immutable) {
++    var ahah = this;
++    $.each(form_values, function () {
++      if (this.name == 'form_build_id') {
++        ahah.buildId = this.value;
++        return false;
++      }
++    });
++  }
+ };
+ 
+ /**
++ * Modify the request object before it is sent.
++ */
++Drupal.ahah.prototype.beforeSend = function (request, options) {
++  if (this.immutable) {
++    request.setRequestHeader('X-Drupal-Accept-Build-Id', '1');
++  }
++}
++
++/**
+  * Handler for the form redirection completion.
+  */
+ Drupal.ahah.prototype.success = function (response, status) {
+@@ -222,3 +248,19 @@ Drupal.ahah.prototype.error = function (response, uri) {
+   // Re-enable the element.
+   $(this.element).removeClass('progess-disabled').attr('disabled', false);
+ };
++
++/**
++ * Handler called when the request finishes, whether in failure or success.
++ */
++Drupal.ahah.prototype.complete = function (response, status) {
++  // Update form build id if necessary.
++  if (this.immutable) {
++    var newBuildId = response.getResponseHeader('X-Drupal-Build-Id');
++    if (this.buildId && newBuildId && this.buildId != newBuildId) {
++      var $element = $('input[name="form_build_id"][value="' + this.buildId + '"]');
++      $element.val(newBuildId);
++      $element.attr('id', newBuildId);
++    }
++    this.buildId = null;
++  }
++}
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 8ee9547..b84c280 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.30');
++define('VERSION', '6.31');
+ 
+ /**
+  * Core API compatibility.
