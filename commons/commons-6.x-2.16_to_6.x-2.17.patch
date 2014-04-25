@@ -1,0 +1,43 @@
+diff --git a/commons-dev.make b/commons-dev.make
+index 9640fb3..fe536aa 100644
+--- a/commons-dev.make
++++ b/commons-dev.make
+@@ -7,7 +7,7 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.30"
++projects[drupal][version] = "6.31"
+ ; http://drupal.org/node/1564996#comment-5963056
+ projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+diff --git a/commons-prod.make b/commons-prod.make
+index 54710eb..127c28c 100644
+--- a/commons-prod.make
++++ b/commons-prod.make
+@@ -7,10 +7,10 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.30"
++projects[drupal][version] = "6.31"
+ ; http://drupal.org/node/1564996#comment-5963056
+ projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+ projects[drupal_commons][type] = "profile"
+ projects[drupal_commons][download][type] = "file"
+-projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.16.tar.gz"
++projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.17.tar.gz"
+diff --git a/drupal_commons.make b/drupal_commons.make
+index 479a124..2636c7e 100644
+--- a/drupal_commons.make
++++ b/drupal_commons.make
+@@ -10,7 +10,7 @@ projects[admin][version] = "2.0"
+ ; Historically Commons placed Acquia connector in the Acquia subdirectory.
+ ; Leaving it there to simplify the upgrade process.
+ projects[acquia_connector][subdir] = "acquia"
+-projects[acquia_connector][version] = "2.14"
++projects[acquia_connector][version] = "2.15"
+ 
+ projects[apachesolr][type] = "module"
+ projects[apachesolr][version] = "1.8"

@@ -1,0 +1,1338 @@
+diff --git a/commons-dev.make b/commons-dev.make
+index 4228c36..fe536aa 100644
+--- a/commons-dev.make
++++ b/commons-dev.make
+@@ -1,4 +1,4 @@
+-; This Drush make script assembles a development version of the Acquia Commons distribution.
++; This Drush make script assembles a development version of the Drupal Commons distribution.
+ ; To package Commons using this script, install Drush make (http://drupal.org/project/drush_make).
+ ; Packaging with the --working-copy flag is recommended for developers since
+ ; it reduces the effort necessary to roll a patch against Commons components
+@@ -7,9 +7,11 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.24"
++projects[drupal][version] = "6.31"
++; http://drupal.org/node/1564996#comment-5963056
++projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+ projects[drupal_commons][type] = "profile"
+ projects[drupal_commons][download][type] = "git"
+ projects[drupal_commons][download][url] = "http://git.drupal.org/project/commons.git"
+-projects[drupal_commons][download][revision] = "6.x-2.x"
+\ No newline at end of file
++projects[drupal_commons][download][revision] = "6.x-2.x"
+diff --git a/commons-prod.make b/commons-prod.make
+index e00b010..127c28c 100644
+--- a/commons-prod.make
++++ b/commons-prod.make
+@@ -1,4 +1,4 @@
+-; This Drush make script assembles a development version of the Acquia Commons distribution.
++; This Drush make script assembles a development version of the Drupal Commons distribution.
+ ; To package Commons using this script, install Drush make (http://drupal.org/project/drush_make).
+ ; Packaging with the --working-copy flag is recommended for developers since
+ ; it reduces the effort necessary to roll a patch against Commons components
+@@ -7,10 +7,10 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.24"
++projects[drupal][version] = "6.31"
++; http://drupal.org/node/1564996#comment-5963056
++projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+ projects[drupal_commons][type] = "profile"
+ projects[drupal_commons][download][type] = "file"
+-projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.5.tar.gz"
+-
+-  
+\ No newline at end of file
++projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.17.tar.gz"
+diff --git a/drupal_commons.make b/drupal_commons.make
+index 8f52c65..2636c7e 100644
+--- a/drupal_commons.make
++++ b/drupal_commons.make
+@@ -1,5 +1,4 @@
+ core = 6.x
+-
+ api = 2
+ 
+ ; Modules
+@@ -11,34 +10,24 @@ projects[admin][version] = "2.0"
+ ; Historically Commons placed Acquia connector in the Acquia subdirectory.
+ ; Leaving it there to simplify the upgrade process.
+ projects[acquia_connector][subdir] = "acquia"
++projects[acquia_connector][version] = "2.15"
++
++projects[apachesolr][type] = "module"
++projects[apachesolr][version] = "1.8"
++projects[apachesolr][subdir] = "acquia/acquia_search"
+ 
+ projects[acquia_search][type] = "module"
+-projects[acquia_search][download][type] = "get"
+-projects[acquia_search][download][url] = "http://network.acquia.com/files/downloads/acquia-search-current.tar.gz"
+ projects[acquia_search][subdir] = "acquia"
++projects[acquia_search][version] = "1.5702"
+ 
+-projects[ajax_load][version] = 1.x-dev
+-projects[ajax_load][download][type] = "git"
+-projects[ajax_load][download][revision] = "8b0921252fcf599e7b15276bd815bcf81521eb27"
++projects[ajax_load][version] = 1.4
+ projects[ajax_load][subdir] = "contrib"
+ 
+ ; Commons Answers dependencies:
+-projects[answers][version] = 2.x-dev
+-projects[answers][download][type] = "git"
+-projects[answers][download][revision] = "6.x-2.x"
+ projects[answers][subdir] ="contrib"
+ 
+-; http://drupal.org/node/1414914
+-projects[answers][patch][] = "http://drupal.org/files/answers-menu-links-overridden.patch"
+-
+-projects[vote_up_down][version] = 3.x-dev
+-projects[vote_up_down][download][type] = "git"
+-projects[vote_up_down][download][revision] = "6.x-3.x"
+ projects[vote_up_down][subdir] = "contrib"
+ 
+-; http://drupal.org/node/1016804#comment-5463316
+-projects[vote_up_down][patch][]  = "http://drupal.org/files/thumbs_up_down_widget-1016804-14.patch"
+-
+ projects[views_attach][version] = 2.x-dev
+ projects[views_attach][download][type] = "git"
+ projects[views_attach][download][revision] = 6.x-2.x
+@@ -61,10 +50,8 @@ projects[nodereference_url][subdir] = "contrib"
+ projects[better_formats][subdir] = "contrib"
+ 
+ projects[boxes][subdir] = "contrib"
+-projects[boxes][version] = "1.0"
+ 
+ projects[ctools][subdir] = "contrib"
+-projects[ctools][version] = "1.8"
+ 
+ projects[calendar][subdir] = "contrib"
+ projects[calendar][version] = "2.4"
+@@ -81,7 +68,7 @@ projects[cck][subdir] = "contrib"
+ projects[cck][version] = "2.9"
+ 
+ projects[context][subdir] = "contrib"
+-projects[context][version] = "3.0"
++projects[context][version] = "3.3"
+ 
+ ; Context patches in PATCHES.txt from Acquia Commons GitHub repo:
+ 
+@@ -93,15 +80,7 @@ projects[context_og][version] = "3.0"
+ 
+ projects[date][subdir] = "contrib"
+ 
+-projects[diff][version] = 2.x-dev
+ projects[diff][subdir] = "contrib"
+-projects[diff][download][type] = "git"
+-projects[diff][download][revision] = "6.x-2.x"
+-
+-; http://drupal.org/node/372957#comment-5458068
+-projects[diff][patch][] = "http://drupal.org/files/372957-diff-strip-html-73.patch"
+-
+-projects[tagging][subdir] = "contrib"
+ 
+ projects[editablefields][subdir] = "contrib"
+ projects[editablefields][version] = "2.0"
+@@ -113,18 +92,18 @@ projects[editablefields][patch][] = "http://drupal.org/files/issues/editablefiel
+ projects[features][subdir] = "contrib"
+ 
+ projects[filefield][subdir] = "contrib"
+-projects[filefield][version] = "3.10"
++projects[filefield][version] = "3.12"
+ 
+ projects[flag][subdir] = "contrib"
+-projects[flag][version] = "1.3"
++projects[flag][version] = "1.5"
+ 
+ projects[freelinking][subdir] = "contrib"
+-projects[freelinking][version] = "1.10"
+ 
+ projects[getid3][subdir] = "contrib"
+ 
+ 
+ libraries[getid3][download][type] = "get"
++libraries[getid3][type] = "libraries"
+ libraries[getid3][destination] = "libraries"
+ libraries[getid3][download][url] = "http://downloads.sourceforge.net/project/getid3/getID3%28%29%201.x/1.9.1/getid3-1.9.1-20110810.zip?r=http%3A%2F%2Fsourceforge.net%2Fprojects%2Fgetid3%2Ffiles%2FgetID3%2528%2529%25201.x%2F1.9.1%2F&ts=1320871534"
+ libraries[getid3][directory_name] = "getid3"
+@@ -145,7 +124,7 @@ projects[imagecache_profiles][subdir] = "contrib"
+ projects[imagecache_profiles][version] = "1.3"
+ 
+ projects[imagefield][subdir] = "contrib"
+-projects[imagefield][version] = "3.10"
++projects[imagefield][version] = "3.11"
+ 
+ projects[insert][subdir] = "contrib"
+ 
+@@ -156,6 +135,7 @@ projects[invite][version] = "2.0-beta3"
+ projects[jquery_ui][subdir] = "contrib"
+ 
+ libraries[jquery_ui][download][type] = "get"
++libraries[jquery_ui][type] = "libraries"
+ libraries[jquery_ui][destination] = "modules/contrib/jquery_ui"
+ libraries[jquery_ui][download][url] = "http://jquery-ui.googlecode.com/files/jquery.ui-1.6.zip"
+ libraries[jquery_ui][directory_name] = "jquery.ui"
+@@ -172,29 +152,23 @@ projects[mimemail][subdir] = "contrib"
+ ; Leaving it there to simplify the upgrade process.
+ 
+ projects[mollom][subdir] = "acquia"
++projects[mollom][version] = "2.6"
+ 
+ 
+ projects[notifications][subdir] = "contrib"
+ projects[notifications][version] = "2.3"
+ 
+ projects[og][subdir] = "contrib"
+-projects[og][version] = "2.2"
++projects[og][version] = "2.4"
+ 
+ ; OG patches in PATCHES.txt from Acquia Commons GitHub repo:
+ 
+-; http://drupal.org/node/1051258
+-projects[og][patch][] = "http://drupal.org/files/issues/og_notifications-add-form-labels.patch"
+-
+ ; http://drupal.org/node/835030
+ ;projects[og][patch][] = "http://drupal.org/files/issues/og_notifications-subscriptions-not-saving-835030.patch"
+ 
+ ; http://drupal.org/node/1128492
+ projects[og][patch][] = "http://drupal.org/files/issues/og_views-add-leave-group-field.patch"
+ 
+-; http://drupal.org/node/793588#comment-5304624
+-projects[og][patch][] = "http://drupal.org/files/add_uid_index_to_og_uid-793588-4-D6.patch"
+-
+-
+ projects[og_aggregator][subdir] = "contrib"
+ projects[og_aggregator][version] = "1.4"
+ 
+@@ -212,13 +186,11 @@ projects[og_aggregator][version] = "1.4"
+ ; Does not apply to og_aggregator 1.4 but has been committed upstream.
+ ; projects[og_aggregator][patch][] = "http://drupal.org/files/issues/og_aggregator-fix-wsod.patch
+ 
+-
+ projects[og_features][subdir] = "contrib"
+-projects[og_features][version] = "1.x-dev"
++projects[og_features][version] = "1.4"
+ 
+ projects[og_invite_link][subdir] = "contrib"
+ 
+-
+ projects[og_statistics][subdir] = "contrib"
+ projects[og_statistics][version] = "1.0-rc5"
+ 
+@@ -230,30 +202,23 @@ projects[og_statistics][patch][] = "http://drupal.org/files/issues/og_statistics
+ ; http://drupal.org/node/1162928#comment-4491270
+ projects[og_statistics][patch][] = "http://drupal.org/files/issues/og_statistics-proper-determination-of-unapproved-1162928_0.patch"
+ 
+-; http://drupal.org/node/1430246#comment-5566234
+-projects[og_statistics][patch][] = "http://drupal.org/files/1430246-og_statistics-filter-group-posts-d.patch"
+-
+ projects[og_subgroups][subdir] = "contrib"
+ 
+-
+ projects[password_policy][subdir] = "contrib"
+ 
+ projects[pathauto][subdir] = "contrib"
+ 
+-projects[quant][version] = 1.x-dev
+-projects[quant][download][type] = "git"
+-projects[quant][download][revision] = "2d204b2"
+ projects[quant][subdir] = "contrib"
+ 
+ projects[rules][subdir] = "contrib"
+-projects[rules][version] = "1.4"
++projects[rules][version] = "1.5"
+ ; http://drupal.org/node/978620#comment-3763720
+ projects[rules][patch][] = "http://drupal.org/files/issues/rules.rules_defaults_alter_0.patch"
+ 
+ projects[strongarm][subdir] = "contrib"
+ 
+ projects[tagadelic][subdir] = "contrib"
+-projects[tagadelic][version] = "1.3"
++projects[tagadelic][version] = "1.5"
+ 
+ projects[tagadelic_views][subdir] = "contrib"
+ projects[tagadelic_views][version] = "1.2"
+@@ -261,7 +226,7 @@ projects[tagadelic_views][version] = "1.2"
+ projects[token][subdir] = "contrib"
+ 
+ projects[transliteration][subdir] = "contrib"
+-projects[transliteration][version] = "3.0"
++projects[transliteration][version] = "3.1"
+ 
+ projects[userpoints_contrib][version] = 1.x-dev
+ projects[userpoints_contrib][subdir] = "contrib"
+@@ -278,18 +243,16 @@ projects[user_badges][patch][] = "http://drupal.org/files/issues/user_badges-for
+ ; http://drupal.org/node/986822#comment-4001216
+ projects[user_badges][patch][] = "http://drupal.org/files/issues/user_badges-undefined-constant-986822.patch"
+ 
+-projects[user_relationships][version] = 1.x-dev
++
+ projects[user_relationships][subdir] = "contrib"
+-projects[user_relationships][download][type] = "git"
+-; UR's last release was ~1 year ago with some non-trivial commits since then.
+-projects[user_relationships][download][revision] = "6.x-1.x"
++
++; User_relationships patches in PATCHES.txt from Acquia Commons GitHub repo:
++; http://drupal.org/node/1121038#comment-6198978
++projects[user_relationships][patch][] = "http://drupal.org/files/1121038-user-relationships-disable-notifications-8.patch"
+ 
+ ; http://drupal.org/node/1322858#comment-5171120
+ projects[user_relationships][patch][] = "http://drupal.org/files/ur_alter_remove_links.patch"
+ 
+-; User_relationships patches in PATCHES.txt from Acquia Commons GitHub repo:
+-; http://drupal.org/node/1121038#comment-4322488
+-projects[user_relationships][patch][] = "http://drupal.org/files/issues/user_relationships_disable_notifications_0_0.patch"
+ 
+ projects[user_terms][subdir] = "contrib"
+ 
+@@ -305,6 +268,8 @@ projects[userpoints_nc][patch][] = "http://drupal.org/files/issues/userpoints_nc
+ 
+ projects[userpoints_user_picture][subdir] = "contrib"
+ projects[userpoints_user_picture][version] = "1.2"
++; http://drupal.org/node/1075668#comment-5926324
++projects[userpoints_user_picture][patch][] = "http://drupal.org/files/userpoints_user_picture_undefined_index_fix_1075668_7.patch"
+ 
+ projects[vertical_tabs][subdir] = "contrib"
+ 
+@@ -313,17 +278,13 @@ projects[views][subdir] = "contrib"
+ ; http://drupal.org/node/402944#comment-4650020
+ projects[views][patch][] = "http://drupal.org/files/issues/views-402944-31.patch"
+ 
+-; The dev branch has a revised UI for determining cache criteria.
+ projects[views_content_cache][subdir] = "contrib"
+-projects[views_content_cache][download][type] = "git"
+-projects[views_content_cache][download][url] = "http://git.drupal.org/project/views_content_cache.git"
+-projects[views_content_cache][download][revision] = "6.x-2.x"
++projects[views_content_cache][version] = "2.3"
+ 
+ projects[views_field_view][subdir] = "contrib"
+ 
+-
+ projects[views_slideshow][subdir] = "contrib"
+-projects[views_slideshow][version] = "2.3"
++projects[views_slideshow][version] = "2.4"
+ 
+ projects[wikitools][subdir] = "contrib"
+ projects[wikitools][version] = "1.3"
+@@ -334,6 +295,7 @@ projects[wysiwyg][download][revision] = "ddfaf684a45eb2ba3e4f866e5e5e6e1c10c8c02
+ projects[wysiwyg][subdir] = "contrib"
+ 
+ libraries[ckeditor][download][type] = "get"
++libraries[ckeditor][type] = "libraries"
+ libraries[ckeditor][destination] = "libraries"
+ libraries[ckeditor][download][url] = "http://download.cksource.com/CKEditor/CKEditor/CKEditor%203.6.2/ckeditor_3.6.2.tar.gz"
+ libraries[ckeditor][directory_name] = "ckeditor"
+@@ -342,21 +304,14 @@ libraries[ckeditor][patch][] = "http://drupal.org/files/1337004-ckeditor-remove-
+ projects[wysiwyg_filter][subdir] = "contrib"
+ projects[wysiwyg_filter][version] = "1.5"
+ 
+-projects[activity_log][version] = 2.x-dev
+-projects[activity_log][download][type] = "git"
+-projects[activity_log][download][revision] = "6.x-2.x"
++projects[activity_log][version] = "2.0-beta2"
+ projects[activity_log][type] = "module"
+ projects[activity_log][subdir] = "contrib"
+ 
+ ; http://drupal.org/node/1306252#comment-5412352
+ projects[activity_log][patch][] = "http://drupal.org/files/1306252-activity_log_node_og_dupes-b.patch"
+ 
+-; http://drupal.org/node/1426576#comment-5596988
+-projects[activity_log][patch][] = "http://drupal.org/files/1426576-activity-log-avatar-resize.patch"
+-
+-projects[digests][version] = 1.x-dev
+-projects[digests][download][type] = "git"
+-projects[digests][download][revision] = "6.x-1.x"
++projects[digests][version] = "1.0"
+ projects[digests][type] = "module"
+ projects[digests][subdir] = "contrib"
+ 
+@@ -367,10 +322,8 @@ projects[tidy_node_links][download][revision] = "6.x-1.x"
+ projects[tidy_node_links][type] = "module"
+ projects[tidy_node_links][subdir] = "contrib"
+ 
+-projects[facebook_status][version] = 3.x-dev
+-projects[facebook_status][download][type] = "git"
+-projects[facebook_status][download][revision] = "6.x-3.x"
+ projects[facebook_status][subdir] = "contrib"
++projects[facebook_status][version] = "3.1"
+ 
+ projects[fbsmp][version] = 2.x-dev
+ projects[fbsmp][subdir] = "contrib"
+@@ -385,12 +338,10 @@ projects[mailcomment][version] = "1.0"
+ 
+ ; Modules no longer in use, to be removed in a future release:
+ 
+-projects[homebox][subdir] = "contrib"
+-projects[shoutbox][subdir] = "contrib"
+-projects[image][subdir] = "contrib"
++;projects[homebox][subdir] = "contrib"
++;projects[shoutbox][subdir] = "contrib"
++;projects[image][subdir] = "contrib"
+ 
+ ; Themes:
+ 
+ projects[fusion][type] = "theme"
+-
+-
+diff --git a/drupal_commons.profile b/drupal_commons.profile
+index 4051dac..5f83785 100644
+--- a/drupal_commons.profile
++++ b/drupal_commons.profile
+@@ -502,10 +502,6 @@ function drupal_commons_cleanup() {
+   
+   // Rebuild node types
+   node_types_rebuild();
+-
+-  // Rebuild Activity Log templates
+-  module_load_include('module', 'activity_log');
+-  _activity_log_rebuild_templates();
+   
+   // Clear drupal message queue for non-warning/errors
+   drupal_get_messages('status', TRUE);
+@@ -553,7 +549,8 @@ function drupal_commons_cleanup() {
+   
+   // Create a test group which contains a node
+   drupal_commons_create_group();
+-  
++  // Rebuild Activity Log templates.
++  activity_log_rebuild_everything();
+   // Remove the feature choices
+   variable_del('commons_selected_features');
+   
+diff --git a/modules/features/commons_answers/commons_answers.module b/modules/features/commons_answers/commons_answers.module
+index 86e9bae..dd7de99 100644
+--- a/modules/features/commons_answers/commons_answers.module
++++ b/modules/features/commons_answers/commons_answers.module
+@@ -34,10 +34,11 @@ function commons_answers_strongarm_alter(&$items) {
+  * Implementation of hook_vud_node_widget_alter().
+  */
+ function commons_answers_vud_node_widget_alter(&$widget, $node) {
+-  // Depends on http://drupal.org/node/1398942.
++  // Use the thumbs widget for the Anwser content type
++  // and alter the widget to use Commons' green/red up/down arrows.
+   if ($node->type == 'answer') {
+-    // TODO: Replace with Commons answers widget type when this is finalized.
+-    $widget = 'thumbs_up_down';
++    $widget = 'thumbs';
++    drupal_add_css(drupal_get_path('module', 'commons_answers') . '/css/commons_answers.css', 'theme');
+   }
+ }
+ 
+@@ -221,12 +222,12 @@ function commons_answers_add_question_form_submit($form, &$form_state) {
+ function commons_answers_add_answer_form(&$form_state, $question_nid) {
+   $form['answer'] = array(
+     '#type' => 'textarea',
+-    '#title' => 'Add answer',
++    '#title' => t('Add answer'),
+     '#required' => TRUE,
+   );
+   $form['submit'] = array(
+     '#type' => 'submit',
+-    '#value' => 'Add answer',
++    '#value' => t('Add answer'),
+   );
+   $form['question_nid'] = array(
+     '#type' => 'value',
+diff --git a/modules/features/commons_answers/css/commons_answers.css b/modules/features/commons_answers/css/commons_answers.css
+new file mode 100644
+index 0000000..7e05576
+--- /dev/null
++++ b/modules/features/commons_answers/css/commons_answers.css
+@@ -0,0 +1,8 @@
++.vud-widget-thumbs .up-inactive,
++.vud-widget-thumbs .down-inactive,
++.vud-widget-thumbs .up-active,
++.vud-widget-thumbs .down-active {
++  background-image: url(../thumbs-sprite.png);
++}
++
++
+diff --git a/modules/features/commons_answers/thumbs-sprite.png b/modules/features/commons_answers/thumbs-sprite.png
+new file mode 100644
+index 0000000..19ad0e5
+Binary files /dev/null and b/modules/features/commons_answers/thumbs-sprite.png differ
+diff --git a/modules/features/commons_core/commons_core.admin.inc b/modules/features/commons_core/commons_core.admin.inc
+index 1967a27..6729315 100644
+--- a/modules/features/commons_core/commons_core.admin.inc
++++ b/modules/features/commons_core/commons_core.admin.inc
+@@ -62,9 +62,9 @@ function commons_core_admin_settings() {
+   
+   $form['group_settings']['commons_email_selective_group'] = array(
+     '#type' => 'checkbox',
+-    '#title' => t('Alert users when added to a selective group'),
++    '#title' => t('Alert users when added or removed from a selective group'),
+     '#default_value' => variable_get('commons_email_selective_group', 1),
+-    '#description' => t('If checked, an email alert will be sent to users that are added to groups that are marked as either invite-only or closed.'),
++    '#description' => t('If checked, an email alert will be sent to users that are added or removed from groups that are marked as either invite-only or closed.'),
+   );
+   
+   $form['group_settings']['commons_group_admin_edit_comments'] = array(
+diff --git a/modules/features/commons_core/commons_core.context.inc b/modules/features/commons_core/commons_core.context.inc
+index cb7db33..bd0e4f9 100644
+--- a/modules/features/commons_core/commons_core.context.inc
++++ b/modules/features/commons_core/commons_core.context.inc
+@@ -164,6 +164,12 @@ function commons_core_context_default_contexts() {
+   $context->reactions = array(
+     'block' => array(
+       'blocks' => array(
++        'views-group_links-block_1' => array(
++          'module' => 'views',
++          'delta' => 'group_links-block_1',
++          'region' => 'sidebar_last',
++          'weight' => 0,
++        ),
+         'views-group_tab_content-block_1' => array(
+           'module' => 'views',
+           'delta' => 'group_tab_content-block_1',
+diff --git a/modules/features/commons_core/commons_core.form.inc b/modules/features/commons_core/commons_core.form.inc
+index c58ca63..129a58e 100644
+--- a/modules/features/commons_core/commons_core.form.inc
++++ b/modules/features/commons_core/commons_core.form.inc
+@@ -106,25 +106,6 @@ function commons_core_form_views_exposed_form_alter(&$form, &$form_state) {
+ }
+ 
+ /**
+- * Implementation of hook_form_FORM_ID_alter()
+- * 
+- * Alter the Tagging admin settings form
+- */
+-function commons_core_form_tagging_admin_settings_alter(&$form, &$form_state) {
+-  // Remove checkbox
+-  unset($form['tagging_show_suggestion_example']);
+-  
+-  // Add a field to supply static suggestions
+-  $form['commons_tag_suggestions'] = array(
+-    '#type' => 'textarea',
+-    '#title' => t('Static tag suggestions'),
+-    '#description' => t('Enter a comma-separated list of terms that will show up as tag suggestions when creating content items.'),
+-    '#weight' => -5,
+-    '#default_value' => variable_get('commons_tag_suggestions', ''),
+-  );
+-}
+-
+-/**
+  * Alter a node form
+  */
+ function commons_core_node_form_alter(&$form, &$form_state) {
+@@ -286,7 +267,7 @@ function commons_core_group_create_content_block_form(&$form_state) {
+         // Load the node type
+         if ($type = node_get_types('type', $type)) {
+           // Add the type
+-          $types[$type->type] = $type->name;
++          $types[$type->type] = t($type->name);
+         }
+       }
+     }
+@@ -298,7 +279,7 @@ function commons_core_group_create_content_block_form(&$form_state) {
+       if (og_is_group_post_type($id)) {
+         // Check create permissions
+         if (node_access('create', $id)) {
+-          $types[$id] = $type->name;
++          $types[$id] = t($type->name);
+         } 
+       }
+     }
+@@ -434,6 +415,7 @@ function commons_core_join_form() {
+             // Remove description
+             unset($pfield['#description']);
+             // Add to our form
++            $pfield['#title'] = t($pfield['#title']);
+             $form[$pkey] = $pfield;
+           }
+           unset($rform[$key][$pkey]);
+@@ -486,29 +468,37 @@ function commons_core_join_form() {
+ function commons_core_form_search_theme_form_alter(&$form, &$form_state) {
+   $path = drupal_get_path('module', 'commons_core');
+   drupal_add_js($path . '/js/commons_core.js');
+-  drupal_add_css($path . '/css/commons_core.css');
+-  
++  drupal_add_css($path . '/css/commons_core.css');  
+   $options = array();
+-  $group = NULL;
+-  $form_state['solr'] = module_exists('apachesolr_search');
+-  $menu_item = menu_get_item($_GET['q']);
+-  
+-  if ($form_state['group'] = og_features_get_group_context()) {
++  $menu_item = menu_get_item();
++  $form['apachesolr_og'] = array(
++    '#type' => 'value',
++    '#value' => module_exists('apachesolr_og') && variable_get('apachesolr_search_make_default', 0),
++  );
++  $form['apachesolr'] = array(
++    '#type' => 'value',
++    '#value' => module_exists('apachesolr_search') && variable_get('apachesolr_search_make_default', 0),
++  );
++
++
++  if ($form_state['group'] = og_get_group_context()) {
+     // If a node is being viewed, add the nodes type within the group as a search
+     // context option.
++
++    $group_title = $form_state['group']->title;
++    // Truncate the title, if needed
++    $limit = variable_get('commons_search_group_title_length', 20);
++    if ($limit && drupal_strlen($group_title) > $limit) {
++      $group_title = truncate_utf8($group_title, $limit, TRUE, TRUE);
++    }
+     if (is_array($menu_item['load_functions']) && $key = array_search('node_load', $menu_item['load_functions'])) {
+       $form_state['node'] = $menu_item['map'][$key];
+       if ($form_state['solr'] && $form_state['node'] != $form_state['group']) {
+-        $options['type'] = t('@type posts in @group', array('@type' => ucfirst($form_state['node']->type), '@group' => $form_state['group']->title));
++        $options['type'] = t('@type posts in @group', array('@type' => ucfirst($form_state['node']->type), '@group' => $group_title));
+       }
+     }
+     // Add the group as a possible search context.
+-    $options['group'] = check_plain($form_state['group']->title);
+-    // Truncate the title, if needed
+-    $limit = variable_get('commons_search_group_title_length', 30);
+-    if ($limit && strlen($options['group']) > $limit) {
+-      $options['group'] = substr($options['group'], 0, $limit) . '...';
+-    }
++    $options['group'] = check_plain($group_title);
+   }
+ 
+   $options['site'] = t('Entire site');
+@@ -528,10 +518,15 @@ function commons_core_form_search_theme_form_alter(&$form, &$form_state) {
+   $form['submit']['#weight'] = 2;
+   $form['search_theme_form']['#title'] = t('Search');
+   
+-  // Replace the core search submit handler with our own
+-  foreach ($form['#submit'] as $key => $callback) {
+-    if ($callback == 'search_box_form_submit') {
+-      $form['#submit'][$key] = 'commons_core_search_submit';
++
++  $key = array_search('search_box_form_submit', $form['#submit']);
++  if ($key !== FALSE) {
++    // Replace the search module's function.
++    $form['#submit'][$key] = 'commons_core_search_submit';
++  }
++  else {
++    if (!in_array('commons_core_search_submit', $form['#submit'])) {
++      $form['#submit'][] = 'commons_core_search_submit';
+     }
+   }
+ }
+@@ -540,7 +535,36 @@ function commons_core_form_search_theme_form_alter(&$form, &$form_state) {
+  * Custom submit handler for the search box
+  */
+ function commons_core_search_submit($form, &$form_state) {
+-  // Copied from search_box_form_submit().
++  $query = array();
++  // Identify our search terms.
++  $form_id = $form['form_id']['#value'];
++  $terms = trim($form_state['values'][$form_id]);
++
++  // Redirect to the appropriate search path and query string.
++
++  // User profiles are not indexed by ApacheSolr out-of-the-box.
++  if ($form_state['values']['refine'] == 'users') {
++    $form_state['redirect'] = 'search/user/' . $terms;
++    return;
++  }
++
++  // Are we searching with ApacheSolr and the group filter?
++  if (isset($form_state['redirect']) && strpos($form_state['redirect'], 'search/apachesolr_search') !== FALSE && $form_state['values']['refine'] == 'group' && $form_state['values']['apachesolr_og']) {
++    // If so, add the group query string to the existing ApacheSolr search path.
++    $query['filters'] = _apachesolr_og_gid_key() . ':' . $form_state['group']->nid;
++    $form_state['redirect'] = array($form_state['redirect'], $query);
++    return;
++  }
++
++  // Are we doing a site-wide ApacheSolr search? If so, ApacheSolr has already
++  // set the proper $form_state['redirect'] for us.
++  if ($form_state['values']['apachesolr'] && $form_state['values']['refine'] == 'site') {
++    return;
++  }
++
++  // We're not using ApacheSolr nor searching on users. That leaves
++  // site-wide and group-specific searches powered by Drupal core.
++
+   if (isset($_REQUEST['destination'])) {
+     unset($_REQUEST['destination']);
+   }
+@@ -548,38 +572,19 @@ function commons_core_search_submit($form, &$form_state) {
+     unset($_REQUEST['edit']['destination']);
+   }
+ 
+-  $form_id = $form['form_id']['#value'];
+-  $terms = trim($form_state['values'][$form_id]);
++
+   $query = array();
+   
+-  // Build a path and query based on the input and options
+-  switch ($form_state['values']['refine']) {
+-    case 'type':
+-      if ($form_state['solr']) {
+-        $path = 'search/apachesolr_search/' . $terms;
+-        $query['filters'] = 'group:' . $form_state['group']->nid . ' type:' . $form_state['node']->type;
+-      }
+-      break;
+-    
+-    case 'group':
+-      if ($form_state['solr']) {
+-        $path = 'search/apachesolr_search/' . $terms;
+-        $query['filters'] = 'group:' . $form_state['group']->nid;
+-      } 
+-      else {
+-        $path = 'og/search/' . $form_state['group']->nid;
+-        $query['keys'] = str_replace(' ', '+', $terms);
+-      }
+-      break;
+-    
+-    case 'users':
+-      $path = 'search/user/' . $terms;
+-      break;
++  // We're doing a group search.
++  if ($form_state['values']['refine'] == 'group') {
++    $path = 'og/search/' . $form_state['group']->nid;
++    $query['keys'] = str_replace(' ', '+', $terms);
++  }
+ 
+-    default:
++  else {
++    // We're doing a site-wide core search.
+       $path = 'search/node/' . $terms;
+-      break;
+   }
+-  
++
+   $form_state['redirect'] = array($path, $query);
+ }
+diff --git a/modules/features/commons_core/commons_core.info b/modules/features/commons_core/commons_core.info
+index e837556..c89fe2c 100644
+--- a/modules/features/commons_core/commons_core.info
++++ b/modules/features/commons_core/commons_core.info
+@@ -213,8 +213,6 @@ features[variable][] = "remove_markup_default_notice"
+ features[variable][] = "remove_markup_default_page"
+ features[variable][] = "tagadelic_block_tags_1"
+ features[variable][] = "tagadelic_sort_order"
+-features[variable][] = "tagging_inject_1"
+-features[variable][] = "tagging_show_suggestion_example"
+ features[variable][] = "theme_settings"
+ features[variable][] = "user_picture_dimensions"
+ features[variable][] = "user_picture_imagecache_comments"
+@@ -239,6 +237,7 @@ features[variable][] = "wysiwyg_filter_valid_elements_raw_1"
+ features[views][] = "bookmarks_your_group"
+ features[views][] = "group_block_latest_content"
+ features[views][] = "group_block_members"
++features[views][] = "group_links"
+ features[views][] = "group_node"
+ features[views][] = "group_tab_content"
+ features[views][] = "groups_featured_groups"
+diff --git a/modules/features/commons_core/commons_core.module b/modules/features/commons_core/commons_core.module
+index 55a3a2c..38cf53c 100644
+--- a/modules/features/commons_core/commons_core.module
++++ b/modules/features/commons_core/commons_core.module
+@@ -245,15 +245,6 @@ function commons_core_theme() {
+ **/
+ function commons_core_strongarm_alter(&$items) {
+   $commons_tags_vid = variable_get('commons_tags_vid', 1);
+-  // If these variables are set but the Commons tags vid isn't 1,
+-  // changing the value isn't sufficient: we need to 
+-  // create a different variable for each one.
+-  if (isset($items['tagging_inject_1']) && $commons_tags_vid != 1) {
+-    $new_item = $items['tagging_inject_1'];
+-    unset($items['tagging_inject_1']);
+-    $new_item->name = 'tagging_inject_' . $commons_tags_vid;
+-    $items['tagging_inject_' . $commons_tags_vid] = $new_item;
+-  }
+   if (isset($items['tagadelic_block_tags_1']) && $commons_tags_vid !=1) {
+     $new_item = $items['tagadelic_block_tags_1'];
+     unset($items['tagadelic_block_tags_1']);
+@@ -389,24 +380,6 @@ function commons_core_field_access($op, $field, $account = NULL, $node = NULL) {
+   }
+ }
+ 
+-/**
+- * Implementation of hook_tagging_suggestions()
+- */
+-function commons_core_tagging_suggestions($vid, $node) {
+-  $suggestions = array();
+-  
+-  // Check if there are suggestions stored
+-  if ($tags = variable_get('commons_tag_suggestions', '')) {
+-    $tags = array_reverse(explode(',', $tags));
+-    foreach ($tags as $tag) {
+-      $suggestions[] = array(
+-        '#name' => trim($tag),
+-      );
+-    }
+-  }
+-
+-  return $suggestions;
+-}
+ 
+ /**
+  * Implementation of hook_user_relationships_remove_link_alter().
+@@ -535,6 +508,28 @@ function commons_core_wysiwyg_editor_settings_alter(&$settings, $context) {
+     $settings['width'] = '95%';
+   }
+ }
++
++/**
++ * Implementation of hook_mollom_form_list().
++ */
++function commons_core_mollom_form_list() {
++  // "Join & learn more" block form
++  $forms['commons_core_join_form'] = array(
++    'title' => t('Join & learn more form'),
++    'entity' => 'user',
++  );
++  return $forms;
++}
++
++/**
++ * Implementation of hook_mollom_form_info().
++ */
++function commons_core_mollom_form_info($form_id) {
++  switch ($form_id) {
++    case 'commons_core_join_form':
++      return user_mollom_form_info('user_register');
++  }
++}
+  
+ /**
+  * Callback to optionally force a login
+@@ -633,10 +628,8 @@ function commons_core_is_community_manager($user = NULL) {
+  */
+ function commons_core_set_breadcrumb($path) {
+   $breadcrumb = array();
+-  
+   // Break the path into pieces
+   $path = explode('/', $path);
+-  
+   switch ($path[0]) {
+     case 'taxonomy':
+       $breadcrumb[] = l(t('Tags'), 'tagadelic');
+@@ -674,10 +667,12 @@ function commons_core_set_breadcrumb($path) {
+     case 'node':
+       if (isset($path[1]) && is_numeric($path[1])) {
+         if ($node = menu_get_object('node')) {
+-          // Make 'Community' the active menu item.
+-          $item = menu_get_item();
+-          $item['href'] = 'community';
+-          menu_set_item(NULL, $item);
++          if (!empty($node->og_groups)) {
++            // Make 'Community' the active menu item.
++            $item = menu_get_item();
++            $item['href'] = 'community';
++            menu_set_item(NULL, $item);
++          }
+           if (og_is_group_type($node->type)) {
+             $breadcrumb[] = l(t('Groups'), 'groups');
+           }
+@@ -721,7 +716,6 @@ function commons_core_set_breadcrumb($path) {
+   if (!empty($breadcrumb)) {
+     // If so, add a frontpage link to the beginning
+     array_unshift($breadcrumb, l(t('Home'), '<front>'));
+-    
+     // And set them
+     drupal_set_breadcrumb($breadcrumb);
+   }
+diff --git a/modules/features/commons_core/commons_core.strongarm.inc b/modules/features/commons_core/commons_core.strongarm.inc
+index 09b5436..7bea53d 100644
+--- a/modules/features/commons_core/commons_core.strongarm.inc
++++ b/modules/features/commons_core/commons_core.strongarm.inc
+@@ -240,20 +240,6 @@ function commons_core_strongarm() {
+   $strongarm = new stdClass;
+   $strongarm->disabled = FALSE; /* Edit this to true to make a default strongarm disabled initially */
+   $strongarm->api_version = 1;
+-  $strongarm->name = 'tagging_inject_1';
+-  $strongarm->value = 1;
+-  $export['tagging_inject_1'] = $strongarm;
+-
+-  $strongarm = new stdClass;
+-  $strongarm->disabled = FALSE; /* Edit this to true to make a default strongarm disabled initially */
+-  $strongarm->api_version = 1;
+-  $strongarm->name = 'tagging_show_suggestion_example';
+-  $strongarm->value = 0;
+-  $export['tagging_show_suggestion_example'] = $strongarm;
+-
+-  $strongarm = new stdClass;
+-  $strongarm->disabled = FALSE; /* Edit this to true to make a default strongarm disabled initially */
+-  $strongarm->api_version = 1;
+   $strongarm->name = 'theme_settings';
+   $strongarm->value = array(
+     'toggle_logo' => 1,
+diff --git a/modules/features/commons_core/commons_core.views_default.inc b/modules/features/commons_core/commons_core.views_default.inc
+index 0ceb7c5..7110baf 100644
+--- a/modules/features/commons_core/commons_core.views_default.inc
++++ b/modules/features/commons_core/commons_core.views_default.inc
+@@ -157,8 +157,9 @@ function commons_core_views_default_views() {
+   $handler->override_option('cache', array(
+     'type' => 'none',
+   ));
+-  $handler->override_option('title', 'Your Bookmarks');
+-  $handler->override_option('empty', 'You have not yet bookmarked any content. Click the "Bookmark this" link when viewing a piece of content to add it to this list.');
++  $handler->override_option('title', 'Your Bookmarks in this Group');
++  $handler->override_option('empty', 'You have not yet bookmarked any content in this group. Click the "Bookmark this" link when viewing a piece of content to add it to this list.');
++  $handler->override_option('empty_format', '1');
+   $handler->override_option('items_per_page', '25');
+   $handler->override_option('use_pager', TRUE);
+   $handler->override_option('use_more', 1);
+@@ -197,22 +198,6 @@ function commons_core_views_default_views() {
+       ),
+     ),
+   ));
+-  $handler = $view->new_display('page', 'Page', 'page');
+-  $handler->override_option('path', 'bookmarks');
+-  $handler->override_option('menu', array(
+-    'type' => 'normal',
+-    'title' => 'My bookmarks',
+-    'description' => '',
+-    'weight' => '0',
+-    'name' => 'navigation',
+-  ));
+-  $handler->override_option('tab_options', array(
+-    'type' => 'none',
+-    'title' => NULL,
+-    'description' => '',
+-    'weight' => NULL,
+-    'name' => 'navigation',
+-  ));
+   $handler = $view->new_display('block', 'Block', 'block_1');
+   $handler->override_option('fields', array(
+     'title' => array(
+@@ -973,6 +958,194 @@ function commons_core_views_default_views() {
+ 
+   $views[$view->name] = $view;
+ 
++  // Exported view: group_links
++  $view = new view;
++  $view->name = 'group_links';
++  $view->description = 'Links specified by group admins as being valuable to the group.';
++  $view->tag = '';
++  $view->base_table = 'node';
++  $view->core = 6;
++  $view->api_version = '2';
++  $view->disabled = FALSE; /* Edit this to true to make a default view disabled initially */
++  $handler = $view->new_display('default', 'Defaults', 'default');
++  $handler->override_option('fields', array(
++    'field_grouplink_url' => array(
++      'label' => '',
++      'alter' => array(
++        'alter_text' => 0,
++        'text' => '',
++        'make_link' => 0,
++        'path' => '',
++        'absolute' => 0,
++        'link_class' => '',
++        'alt' => '',
++        'rel' => '',
++        'prefix' => '',
++        'suffix' => '',
++        'target' => '',
++        'help' => '',
++        'trim' => 0,
++        'max_length' => '',
++        'word_boundary' => 1,
++        'ellipsis' => 1,
++        'html' => 0,
++        'strip_tags' => 0,
++      ),
++      'empty' => 'This group has no group-specific links. ',
++      'hide_empty' => 0,
++      'empty_zero' => 0,
++      'hide_alter_empty' => 0,
++      'link_to_node' => 0,
++      'label_type' => 'none',
++      'format' => 'default',
++      'multiple' => array(
++        'group' => 0,
++        'multiple_number' => '',
++        'multiple_from' => '',
++        'multiple_reversed' => 0,
++      ),
++      'exclude' => 0,
++      'id' => 'field_grouplink_url',
++      'table' => 'node_data_field_grouplink',
++      'field' => 'field_grouplink_url',
++      'relationship' => 'none',
++      'override' => array(
++        'button' => 'Override',
++      ),
++    ),
++  ));
++  $handler->override_option('arguments', array(
++    'nid' => array(
++      'default_action' => 'default',
++      'style_plugin' => 'default_summary',
++      'style_options' => array(),
++      'wildcard' => 'all',
++      'wildcard_substitution' => 'All',
++      'title' => 'Group links',
++      'breadcrumb' => '',
++      'default_argument_type' => 'og_group_node',
++      'default_argument' => '',
++      'validate_type' => 'none',
++      'validate_fail' => 'not found',
++      'break_phrase' => 0,
++      'not' => 0,
++      'id' => 'nid',
++      'table' => 'node',
++      'field' => 'nid',
++      'validate_user_argument_type' => 'uid',
++      'validate_user_roles' => array(
++        2 => 0,
++        16 => 0,
++        6 => 0,
++        7 => 0,
++        8 => 0,
++        5 => 0,
++        11 => 0,
++        12 => 0,
++        26 => 0,
++        9 => 0,
++        21 => 0,
++      ),
++      'relationship' => 'none',
++      'default_options_div_prefix' => '',
++      'default_taxonomy_tid_term_page' => 0,
++      'default_taxonomy_tid_node' => 0,
++      'default_taxonomy_tid_limit' => 0,
++      'default_taxonomy_tid_vids' => array(
++        3 => 0,
++        4 => 0,
++        11 => 0,
++        5 => 0,
++        2 => 0,
++        6 => 0,
++        7 => 0,
++      ),
++      'default_argument_user' => 0,
++      'default_argument_fixed' => '',
++      'default_argument_activity_log_stream_owner_type' => 'user',
++      'default_argument_image_size' => '_original',
++      'default_argument_php' => '',
++      'validate_argument_node_type' => array(
++        'blog' => 0,
++        'poll' => 0,
++        'answer' => 0,
++        'question' => 0,
++        'image' => 0,
++        'discussion' => 0,
++        'document' => 0,
++        'event' => 0,
++        'wiki' => 0,
++        'client_report' => 0,
++        'employee_contact_info' => 0,
++        'escalation' => 0,
++        'mockup' => 0,
++        'rsa' => 0,
++        'rsa_credentials' => 0,
++        'forum' => 0,
++        'group' => 0,
++        'notice' => 0,
++        'page' => 0,
++        'bio' => 0,
++        'book' => 0,
++        'magic_slate' => 0,
++        'profile' => 0,
++        'pspartner' => 0,
++        'psproduct' => 0,
++        'psproject' => 0,
++        'release_notes' => 0,
++        'webform' => 0,
++      ),
++      'validate_argument_node_access' => 0,
++      'validate_argument_nid_type' => 'nid',
++      'validate_argument_vocabulary' => array(
++        3 => 0,
++        4 => 0,
++        11 => 0,
++        5 => 0,
++        2 => 0,
++        6 => 0,
++        7 => 0,
++      ),
++      'validate_argument_type' => 'tid',
++      'validate_argument_transform' => 0,
++      'validate_user_restrict_roles' => 0,
++      'validate_argument_node_flag_name' => '*relationship*',
++      'validate_argument_node_flag_test' => 'flaggable',
++      'validate_argument_node_flag_id_type' => 'id',
++      'validate_argument_user_flag_name' => '*relationship*',
++      'validate_argument_user_flag_test' => 'flaggable',
++      'validate_argument_user_flag_id_type' => 'id',
++      'image_size' => array(
++        '_original' => '_original',
++        'thumbnail' => 'thumbnail',
++        'preview' => 'preview',
++      ),
++      'validate_argument_is_member' => '0',
++      'validate_argument_group_node_type' => array(
++        'group' => 0,
++      ),
++      'validate_argument_php' => '',
++    ),
++  ));
++  $handler->override_option('access', array(
++    'type' => 'none',
++  ));
++  $handler->override_option('cache', array(
++    'type' => 'none',
++  ));
++  $handler->override_option('title', 'Group links');
++  $handler->override_option('empty_format', '1');
++  $handler->override_option('style_plugin', 'list');
++  $handler->override_option('style_options', array(
++    'grouping' => '',
++    'type' => 'ul',
++  ));
++  $handler = $view->new_display('block', 'Block', 'block_1');
++  $handler->override_option('block_description', '');
++  $handler->override_option('block_caching', -1);
++
++  $views[$view->name] = $view;
++
+   // Exported view: group_node
+   $view = new view;
+   $view->name = 'group_node';
+@@ -1420,7 +1593,7 @@ function commons_core_views_default_views() {
+         'max_length' => '210',
+         'word_boundary' => 1,
+         'ellipsis' => 1,
+-        'html' => 0,
++        'html' => 1,
+         'strip_tags' => 0,
+       ),
+       'empty' => '',
+diff --git a/modules/features/commons_discussion/commons_discussion.views_default.inc b/modules/features/commons_discussion/commons_discussion.views_default.inc
+index 1f66adc..035e96e 100644
+--- a/modules/features/commons_discussion/commons_discussion.views_default.inc
++++ b/modules/features/commons_discussion/commons_discussion.views_default.inc
+@@ -881,6 +881,23 @@ function commons_discussion_views_default_views() {
+         'button' => 'Override',
+       ),
+     ),
++    'nid' => array(
++      'operator' => '=',
++      'value' => '',
++      'group' => '0',
++      'exposed' => FALSE,
++      'expose' => array(
++        'operator' => FALSE,
++        'label' => '',
++      ),
++      'id' => 'nid',
++      'table' => 'node_access',
++      'field' => 'nid',
++      'relationship' => 'nid',
++      'override' => array(
++        'button' => 'Override',
++      ),
++    ),
+   ));
+   $handler->override_option('access', array(
+     'type' => 'perm',
+diff --git a/modules/features/commons_profile/commons_profile.module b/modules/features/commons_profile/commons_profile.module
+index 699bd5e..24f7573 100644
+--- a/modules/features/commons_profile/commons_profile.module
++++ b/modules/features/commons_profile/commons_profile.module
+@@ -21,10 +21,7 @@ function commons_profile_menu() {
+ /**
+  * Implementation of hook_menu_alter()
+  */
+-function commons_profile_menu_alter(&$items) {
+-  // Alter the profile tab title
+-  $items['user/%user/view']['title'] = t('Activity stream');
+-  
++function commons_profile_menu_alter(&$items) { 
+   // Hide certain profile tabs 
+   foreach ($items as $key => $item) {
+     switch ($key) {
+@@ -87,9 +84,13 @@ function commons_profile_init() {
+ function commons_profile_user($op, &$edit, &$account, $category = NULL) {    
+   switch ($op) {
+     case 'view':
+-      // Remove the core profile fields, as we'll be providing our
+-      // own content via Context
+-      $account->content = array();
++      // Hide user profile and related information that
++      // is displayed via commons_profile_block().
++      $account->content[t('Personal information')]['#access'] = FALSE;
++      $account->content['user_relationships_ui']['#access'] = FALSE;
++      $account->content['user_picture']['#access'] = FALSE;
++      $account->content['userpoints']['#access'] = FALSE;
++      $account->content['user_badges']['#access'] = FALSE;
+       break;
+   }
+ }
+diff --git a/modules/features/commons_status_streams/commons_status_streams.info b/modules/features/commons_status_streams/commons_status_streams.info
+index 758724f..f56d648 100644
+--- a/modules/features/commons_status_streams/commons_status_streams.info
++++ b/modules/features/commons_status_streams/commons_status_streams.info
+@@ -5,7 +5,6 @@ package = "Commons"
+ dependencies[] = "activity_log"
+ dependencies[] = "comment"
+ dependencies[] = "commons_core"
+-dependencies[] = "commons_profile"
+ dependencies[] = "context"
+ dependencies[] = "ctools"
+ dependencies[] = "digests"
+diff --git a/modules/features/commons_status_streams/commons_status_streams.module b/modules/features/commons_status_streams/commons_status_streams.module
+index 559c88a..ec19231 100644
+--- a/modules/features/commons_status_streams/commons_status_streams.module
++++ b/modules/features/commons_status_streams/commons_status_streams.module
+@@ -35,6 +35,14 @@ function commons_status_streams_group_activity_access($node) {
+   return (og_is_group_type($node->type) && node_access('view', $node));
+ }
+ /**
++ * Implementation of hook_menu_alter().
++ */
++function commons_status_streams_menu_alter(&$items) {
++  // Alter the profile tab title
++  $items['user/%user/view']['title'] = t('Activity stream');
++}
++
++/**
+  * Implementation of hook_form_FORM_ID_alter().
+  */
+ function commons_status_streams_form_system_site_information_settings_alter(&$form, $form_state) {
+@@ -80,6 +88,16 @@ function commons_status_streams_enable() {
+ }
+ 
+ /**
++* Implementation of hook_user().
++*/
++function commons_status_streams_user($op, &$edit, &$account, $category = NULL) {
++  if ($op == 'view') {
++    foreach (array_keys($account->content) as $key) {
++      $account->content[$key]['#access'] = FALSE;
++    }
++  }
++}
++/**
+  * Implementation of hook_rules_defaults_alter()
+  */
+ function commons_status_streams_rules_defaults_alter(&$rules) {
+diff --git a/modules/features/commons_status_streams/fbss_custom/fbss_custom.module b/modules/features/commons_status_streams/fbss_custom/fbss_custom.module
+index 91022ce..a9df376 100644
+--- a/modules/features/commons_status_streams/fbss_custom/fbss_custom.module
++++ b/modules/features/commons_status_streams/fbss_custom/fbss_custom.module
+@@ -24,9 +24,12 @@ function fbss_custom_form_facebook_status_box_alter(&$form, $form_state) {
+   $form['fbsmp']['photo_icon']['#value'] = 'Photo';
+   $form['fbsmp']['photo_icon']['#attributes']['class'] = $form['fbsmp']['photo_icon']['#attributes']['class'] . ' button';
+   
+-  // remove the tool-tips
++  // Remove the tool tips provided by FBSMP since Commons uses button text
++  // rather than images, making the tool tips redundant.
+   foreach (fbsmp_get_plugins() as $key => $info) {
+     $name = $info['name'] ? $info['name'] : $key;
+-    $form['fbsmp'][$key .'_icon']['#suffix'] = '</div>';
++    if (!empty($form['fbsmp'][$key .'_icon']['#suffix'])) {
++      $form['fbsmp'][$key .'_icon']['#suffix'] = '</div>';
++    }
+   }
+ }
+diff --git a/themes/commons_origins/css/commons_origins-style.css b/themes/commons_origins/css/commons_origins-style.css
+index 2c3934d..5130378 100644
+--- a/themes/commons_origins/css/commons_origins-style.css
++++ b/themes/commons_origins/css/commons_origins-style.css
+@@ -2720,6 +2720,11 @@ body#pid-dashboard h1.title, body#pid-dashboard #breadcrumbs {
+ #block-views-group_tab_content-block_1 .view-content .item-list ul li {
+   padding: 14px 0px 20px 0px;
+ }
++
++#block-views-group_tab_content-block_1 {
++  width: 600px;
++}
++
+ .view-group-tab-content .views-field-title {
+   font-size: 1.8em;
+   margin-bottom: 12px;
+@@ -3412,6 +3417,10 @@ padding: 10px;
+ margin: 0px 10px 10px;
+ }
+ 
++#block-views-homepage_group_showcase-block_1 {
++  width: 640px;
++  margin-left: -10px;
++}
+ /* a fix by Jay (read "Untrained themer") to line up the text in the Latest Notices block on /home */
+ .view-recent-notices .views-field-name { margin-left: 40px; }
+ 
+diff --git a/themes/commons_roots/node-answer.tpl.php b/themes/commons_roots/node-answer.tpl.php
+index 2c62264..4c60912 100644
+--- a/themes/commons_roots/node-answer.tpl.php
++++ b/themes/commons_roots/node-answer.tpl.php
+@@ -34,7 +34,7 @@
+       </div>
+       <?php if ($node->comment_count > 0): ?>
+       <div class="comment_clear_style answer-comment-count">
+-        <a href="<?php print base_path() . $node->path; ?>"><?php print format_plural($node->comment_count, '1 comment', '@count comments'); ?></a>
++         <a href="<?php print base_path() . $node->links['comment_add']['href'] . '#' . $node->links['comment_add']['fragment']; ?>" title="<?php print t('Share your thoughts and opinions related to this posting.') ?>"><?php print t('Comment') ?></a>
+       </div>
+       <?php endif; ?>
+     </div>
+diff --git a/themes/commons_roots/node-question.tpl.php b/themes/commons_roots/node-question.tpl.php
+index c825c17..0bb7677 100644
+--- a/themes/commons_roots/node-question.tpl.php
++++ b/themes/commons_roots/node-question.tpl.php
+@@ -27,7 +27,7 @@
+     <div class="content clearfix">
+       <?php print $node->content['body']['#value']; ?>
+       <?php if ($submitted_name): ?>
+-        <span>Submitted by <?php print $submitted_name ?> on <?php print $date; ?></span>
++        <span><?php print t('Submitted by !username on !datetime', array('!username'=>$submitted_name,'!datetime'=>$date)); ?></span>
+       <?php endif; ?>
+       <p class="num-of-answers"><?php print format_plural($node->content['field_answer_count']['field']['#children'], '1 answer', '@count answers'); ?>
+       <?php if(!$logged_in): ?>
+diff --git a/themes/commons_roots/panels/twocol_70_30.inc b/themes/commons_roots/panels/twocol_70_30.inc
+index 76ea99b..f0ad011 100644
+--- a/themes/commons_roots/panels/twocol_70_30.inc
++++ b/themes/commons_roots/panels/twocol_70_30.inc
+@@ -6,7 +6,7 @@
+  */
+ function acquia_commons_twocol_70_30_panels_layouts() {
+   $items['twocol_70_30'] = array(
+-    'title' => t('Acquia Commons - Two column 70/30'),
++    'title' => t('Drupal Commons - Two column 70/30'),
+     'icon' => 'twocol_70_30.png',
+     'theme' => 'twocol_70_30',
+     'theme arguments' => array('id', 'content'),
+diff --git a/themes/commons_roots/template.php b/themes/commons_roots/template.php
+index 6ea545d..cd30090 100644
+--- a/themes/commons_roots/template.php
++++ b/themes/commons_roots/template.php
+@@ -264,7 +264,10 @@ function commons_roots_item_list($items = array(), $title = NULL, $type = 'ul',
+           $attributes['class'] = empty($attributes['class']) ? 'last' : ($attributes['class'] .' last');
+         }
+         
+-        $attributes['class'] .= ' ' . ($c % 2 ? 'even' : 'odd');
++        $nth = ($c % 2 ? 'even' : 'odd');
++    
++        $attributes['class'] = empty($attributes['class']) ? $nth : ($attributes['class'] . ' ' . $nth);
++        
+         $output .= '<li'. drupal_attributes($attributes) .'>'. $data ."</li>\n";
+       } 
+       else {
+@@ -278,7 +281,10 @@ function commons_roots_item_list($items = array(), $title = NULL, $type = 'ul',
+           $attributes['class'] = empty($attributes['class']) ? 'last' : ($attributes['class'] .' last');
+         }
+         
+-        $attributes['class'] .= ' ' . ($i % 2 ? 'even' : 'odd');
++        $nth = ($i % 2 ? 'even' : 'odd');
++        
++        $attributes['class'] = empty($attributes['class']) ? $nth : ($attributes['class'] . ' ' . $nth);
++        
+         $output .= '<li'. drupal_attributes($attributes) .'>'. $data ."</li>\n";
+       }
+     }
+diff --git a/themes/commons_roots/views-view-field--field-date-value.tpl.php b/themes/commons_roots/views-view-field--field-date-value.tpl.php
+index 2e8901b..f836e45 100644
+--- a/themes/commons_roots/views-view-field--field-date-value.tpl.php
++++ b/themes/commons_roots/views-view-field--field-date-value.tpl.php
+@@ -21,7 +21,7 @@
+   */
+   
+ date_default_timezone_set('UTC');
+-$time = format_date(strtotime($row->{$field->field_alias}), 'custom', 'U');
++$time = strtotime($row->{$field->field_alias});
+ ?>
+ <?php if ($variables['view']->plugin_name != 'calendar_style'): ?>
+   <div class="dateblock">

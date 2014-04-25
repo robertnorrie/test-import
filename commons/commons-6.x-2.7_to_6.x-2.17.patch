@@ -1,0 +1,558 @@
+diff --git a/commons-dev.make b/commons-dev.make
+index 7d51cbb..fe536aa 100644
+--- a/commons-dev.make
++++ b/commons-dev.make
+@@ -7,11 +7,11 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.26"
++projects[drupal][version] = "6.31"
+ ; http://drupal.org/node/1564996#comment-5963056
+ projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+ projects[drupal_commons][type] = "profile"
+ projects[drupal_commons][download][type] = "git"
+ projects[drupal_commons][download][url] = "http://git.drupal.org/project/commons.git"
+-projects[drupal_commons][download][revision] = "6.x-2.x"
+\ No newline at end of file
++projects[drupal_commons][download][revision] = "6.x-2.x"
+diff --git a/commons-prod.make b/commons-prod.make
+index a6578e5..127c28c 100644
+--- a/commons-prod.make
++++ b/commons-prod.make
+@@ -7,12 +7,10 @@
+ core = 6.x
+ api = 2
+ 
+-projects[drupal][version] = "6.26"
++projects[drupal][version] = "6.31"
+ ; http://drupal.org/node/1564996#comment-5963056
+ projects[drupal][patch][] = "http://drupal.org/files/1564996_one_time_watchdog_more_info-D6.patch"
+ 
+ projects[drupal_commons][type] = "profile"
+ projects[drupal_commons][download][type] = "file"
+-projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.7.tar.gz"
+-
+-  
+\ No newline at end of file
++projects[drupal_commons][download][url] = "http://ftp.drupal.org/files/projects/commons-6.x-2.17.tar.gz"
+diff --git a/drupal_commons.make b/drupal_commons.make
+index 10807a8..2636c7e 100644
+--- a/drupal_commons.make
++++ b/drupal_commons.make
+@@ -1,5 +1,4 @@
+ core = 6.x
+-
+ api = 2
+ 
+ ; Modules
+@@ -11,24 +10,22 @@ projects[admin][version] = "2.0"
+ ; Historically Commons placed Acquia connector in the Acquia subdirectory.
+ ; Leaving it there to simplify the upgrade process.
+ projects[acquia_connector][subdir] = "acquia"
++projects[acquia_connector][version] = "2.15"
++
++projects[apachesolr][type] = "module"
++projects[apachesolr][version] = "1.8"
++projects[apachesolr][subdir] = "acquia/acquia_search"
+ 
+ projects[acquia_search][type] = "module"
+ projects[acquia_search][subdir] = "acquia"
++projects[acquia_search][version] = "1.5702"
+ 
+-projects[ajax_load][version] = 1.x-dev
+-projects[ajax_load][download][type] = "git"
+-projects[ajax_load][download][revision] = "8b0921252fcf599e7b15276bd815bcf81521eb27"
++projects[ajax_load][version] = 1.4
+ projects[ajax_load][subdir] = "contrib"
+ 
+ ; Commons Answers dependencies:
+-projects[answers][version] = 2.x-dev
+-projects[answers][download][type] = "git"
+-projects[answers][download][revision] = "6.x-2.x"
+ projects[answers][subdir] ="contrib"
+ 
+-projects[vote_up_down][version] = 3.x-dev
+-projects[vote_up_down][download][type] = "git"
+-projects[vote_up_down][download][revision] = "6.x-3.x"
+ projects[vote_up_down][subdir] = "contrib"
+ 
+ projects[views_attach][version] = 2.x-dev
+@@ -71,7 +68,7 @@ projects[cck][subdir] = "contrib"
+ projects[cck][version] = "2.9"
+ 
+ projects[context][subdir] = "contrib"
+-projects[context][version] = "3.0"
++projects[context][version] = "3.3"
+ 
+ ; Context patches in PATCHES.txt from Acquia Commons GitHub repo:
+ 
+@@ -83,10 +80,7 @@ projects[context_og][version] = "3.0"
+ 
+ projects[date][subdir] = "contrib"
+ 
+-projects[diff][version] = 2.x-dev
+ projects[diff][subdir] = "contrib"
+-projects[diff][download][type] = "git"
+-projects[diff][download][revision] = "6.x-2.x"
+ 
+ projects[editablefields][subdir] = "contrib"
+ projects[editablefields][version] = "2.0"
+@@ -98,18 +92,18 @@ projects[editablefields][patch][] = "http://drupal.org/files/issues/editablefiel
+ projects[features][subdir] = "contrib"
+ 
+ projects[filefield][subdir] = "contrib"
+-projects[filefield][version] = "3.10"
++projects[filefield][version] = "3.12"
+ 
+ projects[flag][subdir] = "contrib"
+-projects[flag][version] = "1.3"
++projects[flag][version] = "1.5"
+ 
+ projects[freelinking][subdir] = "contrib"
+-projects[freelinking][version] = "1.10"
+ 
+ projects[getid3][subdir] = "contrib"
+ 
+ 
+ libraries[getid3][download][type] = "get"
++libraries[getid3][type] = "libraries"
+ libraries[getid3][destination] = "libraries"
+ libraries[getid3][download][url] = "http://downloads.sourceforge.net/project/getid3/getID3%28%29%201.x/1.9.1/getid3-1.9.1-20110810.zip?r=http%3A%2F%2Fsourceforge.net%2Fprojects%2Fgetid3%2Ffiles%2FgetID3%2528%2529%25201.x%2F1.9.1%2F&ts=1320871534"
+ libraries[getid3][directory_name] = "getid3"
+@@ -130,7 +124,7 @@ projects[imagecache_profiles][subdir] = "contrib"
+ projects[imagecache_profiles][version] = "1.3"
+ 
+ projects[imagefield][subdir] = "contrib"
+-projects[imagefield][version] = "3.10"
++projects[imagefield][version] = "3.11"
+ 
+ projects[insert][subdir] = "contrib"
+ 
+@@ -141,6 +135,7 @@ projects[invite][version] = "2.0-beta3"
+ projects[jquery_ui][subdir] = "contrib"
+ 
+ libraries[jquery_ui][download][type] = "get"
++libraries[jquery_ui][type] = "libraries"
+ libraries[jquery_ui][destination] = "modules/contrib/jquery_ui"
+ libraries[jquery_ui][download][url] = "http://jquery-ui.googlecode.com/files/jquery.ui-1.6.zip"
+ libraries[jquery_ui][directory_name] = "jquery.ui"
+@@ -157,6 +152,7 @@ projects[mimemail][subdir] = "contrib"
+ ; Leaving it there to simplify the upgrade process.
+ 
+ projects[mollom][subdir] = "acquia"
++projects[mollom][version] = "2.6"
+ 
+ 
+ projects[notifications][subdir] = "contrib"
+@@ -190,12 +186,11 @@ projects[og_aggregator][version] = "1.4"
+ ; Does not apply to og_aggregator 1.4 but has been committed upstream.
+ ; projects[og_aggregator][patch][] = "http://drupal.org/files/issues/og_aggregator-fix-wsod.patch
+ 
+-
+ projects[og_features][subdir] = "contrib"
++projects[og_features][version] = "1.4"
+ 
+ projects[og_invite_link][subdir] = "contrib"
+ 
+-
+ projects[og_statistics][subdir] = "contrib"
+ projects[og_statistics][version] = "1.0-rc5"
+ 
+@@ -209,26 +204,21 @@ projects[og_statistics][patch][] = "http://drupal.org/files/issues/og_statistics
+ 
+ projects[og_subgroups][subdir] = "contrib"
+ 
+-
+ projects[password_policy][subdir] = "contrib"
+ 
+ projects[pathauto][subdir] = "contrib"
+ 
+ projects[quant][subdir] = "contrib"
+-projects[quant][download][type] = "git"
+-projects[quant][version] = 1.x-dev
+-
+-
+ 
+ projects[rules][subdir] = "contrib"
+-projects[rules][version] = "1.4"
++projects[rules][version] = "1.5"
+ ; http://drupal.org/node/978620#comment-3763720
+ projects[rules][patch][] = "http://drupal.org/files/issues/rules.rules_defaults_alter_0.patch"
+ 
+ projects[strongarm][subdir] = "contrib"
+ 
+ projects[tagadelic][subdir] = "contrib"
+-projects[tagadelic][version] = "1.3"
++projects[tagadelic][version] = "1.5"
+ 
+ projects[tagadelic_views][subdir] = "contrib"
+ projects[tagadelic_views][version] = "1.2"
+@@ -253,18 +243,16 @@ projects[user_badges][patch][] = "http://drupal.org/files/issues/user_badges-for
+ ; http://drupal.org/node/986822#comment-4001216
+ projects[user_badges][patch][] = "http://drupal.org/files/issues/user_badges-undefined-constant-986822.patch"
+ 
+-projects[user_relationships][version] = 1.x-dev
++
+ projects[user_relationships][subdir] = "contrib"
+-projects[user_relationships][download][type] = "git"
+-; UR's last release was ~1 year ago with some non-trivial commits since then.
+-projects[user_relationships][download][revision] = "6.x-1.x"
++
++; User_relationships patches in PATCHES.txt from Acquia Commons GitHub repo:
++; http://drupal.org/node/1121038#comment-6198978
++projects[user_relationships][patch][] = "http://drupal.org/files/1121038-user-relationships-disable-notifications-8.patch"
+ 
+ ; http://drupal.org/node/1322858#comment-5171120
+ projects[user_relationships][patch][] = "http://drupal.org/files/ur_alter_remove_links.patch"
+ 
+-; User_relationships patches in PATCHES.txt from Acquia Commons GitHub repo:
+-; http://drupal.org/node/1121038#comment-4322488
+-projects[user_relationships][patch][] = "http://drupal.org/files/issues/user_relationships_disable_notifications_0_0.patch"
+ 
+ projects[user_terms][subdir] = "contrib"
+ 
+@@ -282,7 +270,7 @@ projects[userpoints_user_picture][subdir] = "contrib"
+ projects[userpoints_user_picture][version] = "1.2"
+ ; http://drupal.org/node/1075668#comment-5926324
+ projects[userpoints_user_picture][patch][] = "http://drupal.org/files/userpoints_user_picture_undefined_index_fix_1075668_7.patch"
+- 
++
+ projects[vertical_tabs][subdir] = "contrib"
+ 
+ projects[views][subdir] = "contrib"
+@@ -290,11 +278,8 @@ projects[views][subdir] = "contrib"
+ ; http://drupal.org/node/402944#comment-4650020
+ projects[views][patch][] = "http://drupal.org/files/issues/views-402944-31.patch"
+ 
+-; The dev branch has a revised UI for determining cache criteria.
+ projects[views_content_cache][subdir] = "contrib"
+-projects[views_content_cache][download][type] = "git"
+-projects[views_content_cache][download][url] = "http://git.drupal.org/project/views_content_cache.git"
+-projects[views_content_cache][download][revision] = "6.x-2.x"
++projects[views_content_cache][version] = "2.3"
+ 
+ projects[views_field_view][subdir] = "contrib"
+ 
+@@ -310,6 +295,7 @@ projects[wysiwyg][download][revision] = "ddfaf684a45eb2ba3e4f866e5e5e6e1c10c8c02
+ projects[wysiwyg][subdir] = "contrib"
+ 
+ libraries[ckeditor][download][type] = "get"
++libraries[ckeditor][type] = "libraries"
+ libraries[ckeditor][destination] = "libraries"
+ libraries[ckeditor][download][url] = "http://download.cksource.com/CKEditor/CKEditor/CKEditor%203.6.2/ckeditor_3.6.2.tar.gz"
+ libraries[ckeditor][directory_name] = "ckeditor"
+@@ -318,18 +304,14 @@ libraries[ckeditor][patch][] = "http://drupal.org/files/1337004-ckeditor-remove-
+ projects[wysiwyg_filter][subdir] = "contrib"
+ projects[wysiwyg_filter][version] = "1.5"
+ 
+-projects[activity_log][version] = 2.x-dev
+-projects[activity_log][download][type] = "git"
+-projects[activity_log][download][revision] = "6.x-2.x"
++projects[activity_log][version] = "2.0-beta2"
+ projects[activity_log][type] = "module"
+ projects[activity_log][subdir] = "contrib"
+ 
+ ; http://drupal.org/node/1306252#comment-5412352
+ projects[activity_log][patch][] = "http://drupal.org/files/1306252-activity_log_node_og_dupes-b.patch"
+ 
+-projects[digests][version] = 1.x-dev
+-projects[digests][download][type] = "git"
+-projects[digests][download][revision] = "6.x-1.x"
++projects[digests][version] = "1.0"
+ projects[digests][type] = "module"
+ projects[digests][subdir] = "contrib"
+ 
+@@ -340,10 +322,8 @@ projects[tidy_node_links][download][revision] = "6.x-1.x"
+ projects[tidy_node_links][type] = "module"
+ projects[tidy_node_links][subdir] = "contrib"
+ 
+-projects[facebook_status][version] = 3.x-dev
+-projects[facebook_status][download][type] = "git"
+-projects[facebook_status][download][revision] = "6.x-3.x"
+ projects[facebook_status][subdir] = "contrib"
++projects[facebook_status][version] = "3.1"
+ 
+ projects[fbsmp][version] = 2.x-dev
+ projects[fbsmp][subdir] = "contrib"
+@@ -358,9 +338,9 @@ projects[mailcomment][version] = "1.0"
+ 
+ ; Modules no longer in use, to be removed in a future release:
+ 
+-projects[homebox][subdir] = "contrib"
+-projects[shoutbox][subdir] = "contrib"
+-projects[image][subdir] = "contrib"
++;projects[homebox][subdir] = "contrib"
++;projects[shoutbox][subdir] = "contrib"
++;projects[image][subdir] = "contrib"
+ 
+ ; Themes:
+ 
+diff --git a/modules/features/commons_answers/commons_answers.module b/modules/features/commons_answers/commons_answers.module
+index 49d47ca..dd7de99 100644
+--- a/modules/features/commons_answers/commons_answers.module
++++ b/modules/features/commons_answers/commons_answers.module
+@@ -222,12 +222,12 @@ function commons_answers_add_question_form_submit($form, &$form_state) {
+ function commons_answers_add_answer_form(&$form_state, $question_nid) {
+   $form['answer'] = array(
+     '#type' => 'textarea',
+-    '#title' => 'Add answer',
++    '#title' => t('Add answer'),
+     '#required' => TRUE,
+   );
+   $form['submit'] = array(
+     '#type' => 'submit',
+-    '#value' => 'Add answer',
++    '#value' => t('Add answer'),
+   );
+   $form['question_nid'] = array(
+     '#type' => 'value',
+diff --git a/modules/features/commons_core/commons_core.admin.inc b/modules/features/commons_core/commons_core.admin.inc
+index 1967a27..6729315 100644
+--- a/modules/features/commons_core/commons_core.admin.inc
++++ b/modules/features/commons_core/commons_core.admin.inc
+@@ -62,9 +62,9 @@ function commons_core_admin_settings() {
+   
+   $form['group_settings']['commons_email_selective_group'] = array(
+     '#type' => 'checkbox',
+-    '#title' => t('Alert users when added to a selective group'),
++    '#title' => t('Alert users when added or removed from a selective group'),
+     '#default_value' => variable_get('commons_email_selective_group', 1),
+-    '#description' => t('If checked, an email alert will be sent to users that are added to groups that are marked as either invite-only or closed.'),
++    '#description' => t('If checked, an email alert will be sent to users that are added or removed from groups that are marked as either invite-only or closed.'),
+   );
+   
+   $form['group_settings']['commons_group_admin_edit_comments'] = array(
+diff --git a/modules/features/commons_core/commons_core.form.inc b/modules/features/commons_core/commons_core.form.inc
+index e6fa644..129a58e 100644
+--- a/modules/features/commons_core/commons_core.form.inc
++++ b/modules/features/commons_core/commons_core.form.inc
+@@ -267,7 +267,7 @@ function commons_core_group_create_content_block_form(&$form_state) {
+         // Load the node type
+         if ($type = node_get_types('type', $type)) {
+           // Add the type
+-          $types[$type->type] = $type->name;
++          $types[$type->type] = t($type->name);
+         }
+       }
+     }
+@@ -279,7 +279,7 @@ function commons_core_group_create_content_block_form(&$form_state) {
+       if (og_is_group_post_type($id)) {
+         // Check create permissions
+         if (node_access('create', $id)) {
+-          $types[$id] = $type->name;
++          $types[$id] = t($type->name);
+         } 
+       }
+     }
+@@ -415,6 +415,7 @@ function commons_core_join_form() {
+             // Remove description
+             unset($pfield['#description']);
+             // Add to our form
++            $pfield['#title'] = t($pfield['#title']);
+             $form[$pkey] = $pfield;
+           }
+           unset($rform[$key][$pkey]);
+diff --git a/modules/features/commons_core/commons_core.views_default.inc b/modules/features/commons_core/commons_core.views_default.inc
+index c52cd0a..7110baf 100644
+--- a/modules/features/commons_core/commons_core.views_default.inc
++++ b/modules/features/commons_core/commons_core.views_default.inc
+@@ -157,8 +157,9 @@ function commons_core_views_default_views() {
+   $handler->override_option('cache', array(
+     'type' => 'none',
+   ));
+-  $handler->override_option('title', 'Your Bookmarks');
+-  $handler->override_option('empty', 'You have not yet bookmarked any content. Click the "Bookmark this" link when viewing a piece of content to add it to this list.');
++  $handler->override_option('title', 'Your Bookmarks in this Group');
++  $handler->override_option('empty', 'You have not yet bookmarked any content in this group. Click the "Bookmark this" link when viewing a piece of content to add it to this list.');
++  $handler->override_option('empty_format', '1');
+   $handler->override_option('items_per_page', '25');
+   $handler->override_option('use_pager', TRUE);
+   $handler->override_option('use_more', 1);
+@@ -197,22 +198,6 @@ function commons_core_views_default_views() {
+       ),
+     ),
+   ));
+-  $handler = $view->new_display('page', 'Page', 'page');
+-  $handler->override_option('path', 'bookmarks');
+-  $handler->override_option('menu', array(
+-    'type' => 'normal',
+-    'title' => 'My bookmarks',
+-    'description' => '',
+-    'weight' => '0',
+-    'name' => 'navigation',
+-  ));
+-  $handler->override_option('tab_options', array(
+-    'type' => 'none',
+-    'title' => NULL,
+-    'description' => '',
+-    'weight' => NULL,
+-    'name' => 'navigation',
+-  ));
+   $handler = $view->new_display('block', 'Block', 'block_1');
+   $handler->override_option('fields', array(
+     'title' => array(
+diff --git a/modules/features/commons_discussion/commons_discussion.views_default.inc b/modules/features/commons_discussion/commons_discussion.views_default.inc
+index 1f66adc..035e96e 100644
+--- a/modules/features/commons_discussion/commons_discussion.views_default.inc
++++ b/modules/features/commons_discussion/commons_discussion.views_default.inc
+@@ -881,6 +881,23 @@ function commons_discussion_views_default_views() {
+         'button' => 'Override',
+       ),
+     ),
++    'nid' => array(
++      'operator' => '=',
++      'value' => '',
++      'group' => '0',
++      'exposed' => FALSE,
++      'expose' => array(
++        'operator' => FALSE,
++        'label' => '',
++      ),
++      'id' => 'nid',
++      'table' => 'node_access',
++      'field' => 'nid',
++      'relationship' => 'nid',
++      'override' => array(
++        'button' => 'Override',
++      ),
++    ),
+   ));
+   $handler->override_option('access', array(
+     'type' => 'perm',
+diff --git a/modules/features/commons_profile/commons_profile.module b/modules/features/commons_profile/commons_profile.module
+index 699bd5e..24f7573 100644
+--- a/modules/features/commons_profile/commons_profile.module
++++ b/modules/features/commons_profile/commons_profile.module
+@@ -21,10 +21,7 @@ function commons_profile_menu() {
+ /**
+  * Implementation of hook_menu_alter()
+  */
+-function commons_profile_menu_alter(&$items) {
+-  // Alter the profile tab title
+-  $items['user/%user/view']['title'] = t('Activity stream');
+-  
++function commons_profile_menu_alter(&$items) { 
+   // Hide certain profile tabs 
+   foreach ($items as $key => $item) {
+     switch ($key) {
+@@ -87,9 +84,13 @@ function commons_profile_init() {
+ function commons_profile_user($op, &$edit, &$account, $category = NULL) {    
+   switch ($op) {
+     case 'view':
+-      // Remove the core profile fields, as we'll be providing our
+-      // own content via Context
+-      $account->content = array();
++      // Hide user profile and related information that
++      // is displayed via commons_profile_block().
++      $account->content[t('Personal information')]['#access'] = FALSE;
++      $account->content['user_relationships_ui']['#access'] = FALSE;
++      $account->content['user_picture']['#access'] = FALSE;
++      $account->content['userpoints']['#access'] = FALSE;
++      $account->content['user_badges']['#access'] = FALSE;
+       break;
+   }
+ }
+diff --git a/modules/features/commons_status_streams/commons_status_streams.info b/modules/features/commons_status_streams/commons_status_streams.info
+index 758724f..f56d648 100644
+--- a/modules/features/commons_status_streams/commons_status_streams.info
++++ b/modules/features/commons_status_streams/commons_status_streams.info
+@@ -5,7 +5,6 @@ package = "Commons"
+ dependencies[] = "activity_log"
+ dependencies[] = "comment"
+ dependencies[] = "commons_core"
+-dependencies[] = "commons_profile"
+ dependencies[] = "context"
+ dependencies[] = "ctools"
+ dependencies[] = "digests"
+diff --git a/modules/features/commons_status_streams/commons_status_streams.module b/modules/features/commons_status_streams/commons_status_streams.module
+index 559c88a..ec19231 100644
+--- a/modules/features/commons_status_streams/commons_status_streams.module
++++ b/modules/features/commons_status_streams/commons_status_streams.module
+@@ -35,6 +35,14 @@ function commons_status_streams_group_activity_access($node) {
+   return (og_is_group_type($node->type) && node_access('view', $node));
+ }
+ /**
++ * Implementation of hook_menu_alter().
++ */
++function commons_status_streams_menu_alter(&$items) {
++  // Alter the profile tab title
++  $items['user/%user/view']['title'] = t('Activity stream');
++}
++
++/**
+  * Implementation of hook_form_FORM_ID_alter().
+  */
+ function commons_status_streams_form_system_site_information_settings_alter(&$form, $form_state) {
+@@ -80,6 +88,16 @@ function commons_status_streams_enable() {
+ }
+ 
+ /**
++* Implementation of hook_user().
++*/
++function commons_status_streams_user($op, &$edit, &$account, $category = NULL) {
++  if ($op == 'view') {
++    foreach (array_keys($account->content) as $key) {
++      $account->content[$key]['#access'] = FALSE;
++    }
++  }
++}
++/**
+  * Implementation of hook_rules_defaults_alter()
+  */
+ function commons_status_streams_rules_defaults_alter(&$rules) {
+diff --git a/themes/commons_roots/node-answer.tpl.php b/themes/commons_roots/node-answer.tpl.php
+index 2c62264..4c60912 100644
+--- a/themes/commons_roots/node-answer.tpl.php
++++ b/themes/commons_roots/node-answer.tpl.php
+@@ -34,7 +34,7 @@
+       </div>
+       <?php if ($node->comment_count > 0): ?>
+       <div class="comment_clear_style answer-comment-count">
+-        <a href="<?php print base_path() . $node->path; ?>"><?php print format_plural($node->comment_count, '1 comment', '@count comments'); ?></a>
++         <a href="<?php print base_path() . $node->links['comment_add']['href'] . '#' . $node->links['comment_add']['fragment']; ?>" title="<?php print t('Share your thoughts and opinions related to this posting.') ?>"><?php print t('Comment') ?></a>
+       </div>
+       <?php endif; ?>
+     </div>
+diff --git a/themes/commons_roots/node-question.tpl.php b/themes/commons_roots/node-question.tpl.php
+index c825c17..0bb7677 100644
+--- a/themes/commons_roots/node-question.tpl.php
++++ b/themes/commons_roots/node-question.tpl.php
+@@ -27,7 +27,7 @@
+     <div class="content clearfix">
+       <?php print $node->content['body']['#value']; ?>
+       <?php if ($submitted_name): ?>
+-        <span>Submitted by <?php print $submitted_name ?> on <?php print $date; ?></span>
++        <span><?php print t('Submitted by !username on !datetime', array('!username'=>$submitted_name,'!datetime'=>$date)); ?></span>
+       <?php endif; ?>
+       <p class="num-of-answers"><?php print format_plural($node->content['field_answer_count']['field']['#children'], '1 answer', '@count answers'); ?>
+       <?php if(!$logged_in): ?>
+diff --git a/themes/commons_roots/template.php b/themes/commons_roots/template.php
+index 6ea545d..cd30090 100644
+--- a/themes/commons_roots/template.php
++++ b/themes/commons_roots/template.php
+@@ -264,7 +264,10 @@ function commons_roots_item_list($items = array(), $title = NULL, $type = 'ul',
+           $attributes['class'] = empty($attributes['class']) ? 'last' : ($attributes['class'] .' last');
+         }
+         
+-        $attributes['class'] .= ' ' . ($c % 2 ? 'even' : 'odd');
++        $nth = ($c % 2 ? 'even' : 'odd');
++    
++        $attributes['class'] = empty($attributes['class']) ? $nth : ($attributes['class'] . ' ' . $nth);
++        
+         $output .= '<li'. drupal_attributes($attributes) .'>'. $data ."</li>\n";
+       } 
+       else {
+@@ -278,7 +281,10 @@ function commons_roots_item_list($items = array(), $title = NULL, $type = 'ul',
+           $attributes['class'] = empty($attributes['class']) ? 'last' : ($attributes['class'] .' last');
+         }
+         
+-        $attributes['class'] .= ' ' . ($i % 2 ? 'even' : 'odd');
++        $nth = ($i % 2 ? 'even' : 'odd');
++        
++        $attributes['class'] = empty($attributes['class']) ? $nth : ($attributes['class'] . ' ' . $nth);
++        
+         $output .= '<li'. drupal_attributes($attributes) .'>'. $data ."</li>\n";
+       }
+     }
