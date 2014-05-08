@@ -1,0 +1,2100 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 3a63aea..ed73431 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,46 @@
+ 
++Drupal 7.28, 2014-05-08
++-----------------------
++- Fixed a regression introduced in Drupal 7.27 that caused JavaScript to break
++  on older browsers (such as Internet Explorer 8 and earlier) when Ajax was
++  used.
++- Increased the timeout used by the Update Manager module when it fetches data
++  from drupal.org (from 5 seconds to 30 seconds), to work around a problem
++  which causes incomplete information about security updates to be presented to
++  site administrators. This fix may lead to a performance slowdown on the
++  Update Manager administration pages, when installing Drupal distributions,
++  and (for sites that use the automated cron feature) on occasional page loads
++  by site visitors.
++- Fixed the behavior of the token system's "[node:summary]" token when the body
++  field does not have a manual summary.
++- Changed the behavior of db_query_temporary() so that it works on SELECT
++  queries even when they have leading comments/whitespace. A side effect of
++  this fix is that db_query_temporary() will now fail with an error if it is
++  ever used on non-SELECT queries.
++- Added a "node_admin_filter" tag to the database query used to build the list
++  of nodes on the content administration page, to make it easier to alter.
++- Made the cron queue system log any exceptions that are thrown while an item
++  in the queue is being processed, rather than stopping the entire PHP request.
++- Improved screen reader support by adding an aria-live HTML attribute to file
++  upload fields when there is an error uploading the file (minor markup
++  change).
++- Made the pager on the Tracker module listing pages show the same number of
++  items as other pagers throughout Drupal core (minor UI change).
++- Fixed a bug which caused caches not to be properly cleared when a file entity
++  was saved or deleted.
++- Added several missing countries to the default list returned by
++  country_get_list() (string change).
++- Replaced the term "weight" with "influence" in the content ranking settings
++  for search, and added help text for administrators (string change).
++- Fixed untranslatable text strings in the administrative interface for the
++  "Crop" effect provided by the Image module (minor string change).
++- Fixed a bug in the Taxonomy module update function introduced in Drupal 7.26
++  that caused memory and CPU problems on sites with very large numbers of
++  unpublished nodes.
++- Numerous small bug fixes.
++- Numerous API documentation improvements.
++- Additional automated test coverage.
++
+ Drupal 7.27, 2014-04-16
+ ----------------------
+ - Fixed security issues (information disclosure). See SA-CORE-2014-002.
+diff --git a/INSTALL.mysql.txt b/INSTALL.mysql.txt
+index bee5811..95a8734 100644
+--- a/INSTALL.mysql.txt
++++ b/INSTALL.mysql.txt
+@@ -20,18 +20,21 @@ initial database files. Next you must log in and set the access database rights:
+ Again, you will be asked for the 'username' database password. At the MySQL
+ prompt, enter the following command:
+ 
+-  GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER
+-  ON databasename.*
++  GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER,
++  CREATE TEMPORARY TABLES ON databasename.*
+   TO 'username'@'localhost' IDENTIFIED BY 'password';
+ 
+-where
++where:
+ 
+  'databasename' is the name of your database
+- 'username@localhost' is the username of your MySQL account
++ 'username' is the username of your MySQL account
++ 'localhost' is the web server host where Drupal is installed
+  'password' is the password required for that username
+ 
+-Note: Unless your database user has all of the privileges listed above, you will
+-not be able to run Drupal.
++Note: Unless the database user/host combination for your Drupal installation
++has all of the privileges listed above (except possibly CREATE TEMPORARY TABLES,
++which is currently only used by Drupal core automated tests and some
++contributed modules), you will not be able to install or run Drupal.
+ 
+ If successful, MySQL will reply with:
+ 
+diff --git a/README.txt b/README.txt
+index f4c2f64..60d3da5 100644
+--- a/README.txt
++++ b/README.txt
+@@ -71,12 +71,12 @@ profiles/your_site_profile/themes respectively to restrict their usage to only
+ sites that were installed with that specific profile.
+ 
+ More about installation profiles and distributions:
+-* Read about the difference between installation profiles and distributions:
+-  http://drupal.org/node/1089736
+-* Download contributed installation profiles and distributions:
+-  http://drupal.org/project/distributions
+-* Develop your own installation profile or distribution:
+-  http://drupal.org/developing/distributions
++ * Read about the difference between installation profiles and distributions:
++   http://drupal.org/node/1089736
++ * Download contributed installation profiles and distributions:
++   http://drupal.org/project/distributions
++ * Develop your own installation profile or distribution:
++   http://drupal.org/developing/distributions
+ 
+ APPEARANCE
+ ----------
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 4cc3914..09c2044 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.27');
++define('VERSION', '7.28');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/common.inc b/includes/common.inc
+index 3b4bf58..e1a1673 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -458,7 +458,7 @@ function drupal_get_query_array($query) {
+   $result = array();
+   if (!empty($query)) {
+     foreach (explode('&', $query) as $param) {
+-      $param = explode('=', $param);
++      $param = explode('=', $param, 2);
+       $result[$param[0]] = isset($param[1]) ? rawurldecode($param[1]) : '';
+     }
+   }
+@@ -1426,7 +1426,6 @@ function filter_xss_admin($string) {
+  *   valid UTF-8.
+  *
+  * @see drupal_validate_utf8()
+- * @ingroup sanitization
+  */
+ function filter_xss($string, $allowed_tags = array('a', 'em', 'strong', 'cite', 'blockquote', 'code', 'ul', 'ol', 'li', 'dl', 'dt', 'dd')) {
+   // Only operate on valid UTF-8 strings. This is necessary to prevent cross
+@@ -5067,6 +5066,11 @@ function drupal_get_private_key() {
+  * @param $value
+  *   An additional value to base the token on.
+  *
++ * The generated token is based on the session ID of the current user. Normally,
++ * anonymous users do not have a session, so the generated token will be
++ * different on every page request. To generate a token for users without a
++ * session, manually start a session prior to calling this function.
++ *
+  * @return string
+  *   A 43-character URL-safe token for validation, based on the user session ID,
+  *   the hash salt provided from drupal_get_hash_salt(), and the
+@@ -5290,8 +5294,15 @@ function drupal_cron_run() {
+     $end = time() + (isset($info['time']) ? $info['time'] : 15);
+     $queue = DrupalQueue::get($queue_name);
+     while (time() < $end && ($item = $queue->claimItem())) {
+-      $function($item->data);
+-      $queue->deleteItem($item);
++      try {
++        $function($item->data);
++        $queue->deleteItem($item);
++      }
++      catch (Exception $e) {
++        // In case of exception log it and leave the item in the queue
++        // to be processed again later.
++        watchdog_exception('cron', $e);
++      }
+     }
+   }
+   // Restore the user.
+@@ -5946,14 +5957,16 @@ function drupal_render(&$elements) {
+ /**
+  * Renders children of an element and concatenates them.
+  *
+- * This renders all children of an element using drupal_render() and then
+- * joins them together into a single string.
+- *
+- * @param $element
++ * @param array $element
+  *   The structured array whose children shall be rendered.
+- * @param $children_keys
+- *   If the keys of the element's children are already known, they can be passed
+- *   in to save another run of element_children().
++ * @param array $children_keys
++ *   (optional) If the keys of the element's children are already known, they
++ *   can be passed in to save another run of element_children().
++ *
++ * @return string
++ *   The rendered HTML of all children of the element.
++
++ * @see drupal_render()
+  */
+ function drupal_render_children(&$element, $children_keys = NULL) {
+   if ($children_keys === NULL) {
+@@ -7827,7 +7840,10 @@ function entity_load_unchanged($entity_type, $id) {
+ }
+ 
+ /**
+- * Get the entity controller class for an entity type.
++ * Gets the entity controller for an entity type.
++ *
++ * @return DrupalEntityControllerInterface
++ *   The entity controller object for the specified entity type.
+  */
+ function entity_get_controller($entity_type) {
+   $controllers = &drupal_static(__FUNCTION__, array());
+diff --git a/includes/database/database.inc b/includes/database/database.inc
+index 604dd4c..ad78ac0 100644
+--- a/includes/database/database.inc
++++ b/includes/database/database.inc
+@@ -28,18 +28,21 @@
+  * Most Drupal database SELECT queries are performed by a call to db_query() or
+  * db_query_range(). Module authors should also consider using the PagerDefault
+  * Extender for queries that return results that need to be presented on
+- * multiple pages, and the Tablesort Extender for generating appropriate queries
+- * for sortable tables.
++ * multiple pages (see https://drupal.org/node/508796), and the TableSort
++ * Extender for generating appropriate queries for sortable tables
++ * (see https://drupal.org/node/1848372).
+  *
+  * For example, one might wish to return a list of the most recent 10 nodes
+  * authored by a given user. Instead of directly issuing the SQL query
+  * @code
+- * SELECT n.nid, n.title, n.created FROM node n WHERE n.uid = $uid LIMIT 0, 10;
++ * SELECT n.nid, n.title, n.created FROM node n WHERE n.uid = $uid
++ *   ORDER BY n.created DESC LIMIT 0, 10;
+  * @endcode
+  * one would instead call the Drupal functions:
+  * @code
+  * $result = db_query_range('SELECT n.nid, n.title, n.created
+- *   FROM {node} n WHERE n.uid = :uid', 0, 10, array(':uid' => $uid));
++ *   FROM {node} n WHERE n.uid = :uid
++ *   ORDER BY n.created DESC', 0, 10, array(':uid' => $uid));
+  * foreach ($result as $record) {
+  *   // Perform operations on $record->title, etc. here.
+  * }
+@@ -2380,14 +2383,14 @@ function db_query_range($query, $from, $count, array $args = array(), array $opt
+ }
+ 
+ /**
+- * Executes a query string and saves the result set to a temporary table.
++ * Executes a SELECT query string and saves the result set to a temporary table.
+  *
+  * The execution of the query string happens against the active database.
+  *
+  * @param $query
+- *   The prepared statement query to run. Although it will accept both named and
+- *   unnamed placeholders, named placeholders are strongly preferred as they are
+- *   more self-documenting.
++ *   The prepared SELECT statement query to run. Although it will accept both
++ *   named and unnamed placeholders, named placeholders are strongly preferred
++ *   as they are more self-documenting.
+  * @param $args
+  *   An array of values to substitute into the query. If the query uses named
+  *   placeholders, this is an associative array in any order. If the query uses
+diff --git a/includes/database/mysql/database.inc b/includes/database/mysql/database.inc
+index 00d81f4..4907a39 100644
+--- a/includes/database/mysql/database.inc
++++ b/includes/database/mysql/database.inc
+@@ -90,7 +90,7 @@ class DatabaseConnection_mysql extends DatabaseConnection {
+ 
+   public function queryTemporary($query, array $args = array(), array $options = array()) {
+     $tablename = $this->generateTemporaryTableName();
+-    $this->query(preg_replace('/^SELECT/i', 'CREATE TEMPORARY TABLE {' . $tablename . '} Engine=MEMORY SELECT', $query), $args, $options);
++    $this->query('CREATE TEMPORARY TABLE {' . $tablename . '} Engine=MEMORY ' . $query, $args, $options);
+     return $tablename;
+   }
+ 
+diff --git a/includes/database/pgsql/database.inc b/includes/database/pgsql/database.inc
+index 00ed799..67b49fe 100644
+--- a/includes/database/pgsql/database.inc
++++ b/includes/database/pgsql/database.inc
+@@ -146,7 +146,7 @@ class DatabaseConnection_pgsql extends DatabaseConnection {
+ 
+   public function queryTemporary($query, array $args = array(), array $options = array()) {
+     $tablename = $this->generateTemporaryTableName();
+-    $this->query(preg_replace('/^SELECT/i', 'CREATE TEMPORARY TABLE {' . $tablename . '} AS SELECT', $query), $args, $options);
++    $this->query('CREATE TEMPORARY TABLE {' . $tablename . '} AS ' . $query, $args, $options);
+     return $tablename;
+   }
+ 
+diff --git a/includes/database/select.inc b/includes/database/select.inc
+index e036904..70c03a2 100644
+--- a/includes/database/select.inc
++++ b/includes/database/select.inc
+@@ -596,7 +596,7 @@ class SelectQueryExtender implements SelectQueryInterface {
+ 
+   public function hasAnyTag() {
+     $args = func_get_args();
+-    return call_user_func_array(array($this->query, 'hasAnyTags'), $args);
++    return call_user_func_array(array($this->query, 'hasAnyTag'), $args);
+   }
+ 
+   public function addMetaData($key, $object) {
+diff --git a/includes/database/sqlite/database.inc b/includes/database/sqlite/database.inc
+index b302b3e..8a5ba8c 100644
+--- a/includes/database/sqlite/database.inc
++++ b/includes/database/sqlite/database.inc
+@@ -250,7 +250,7 @@ class DatabaseConnection_sqlite extends DatabaseConnection {
+     $prefixes[$tablename] = '';
+     $this->setPrefix($prefixes);
+ 
+-    $this->query(preg_replace('/^SELECT/i', 'CREATE TEMPORARY TABLE ' . $tablename . ' AS SELECT', $query), $args, $options);
++    $this->query('CREATE TEMPORARY TABLE ' . $tablename . ' AS ' . $query, $args, $options);
+     return $tablename;
+   }
+ 
+diff --git a/includes/entity.inc b/includes/entity.inc
+index 25f7584..dc43e73 100644
+--- a/includes/entity.inc
++++ b/includes/entity.inc
+@@ -360,9 +360,23 @@ class DrupalDefaultEntityController implements DrupalEntityControllerInterface {
+     // This ensures the same behavior whether loading from memory or database.
+     if ($conditions) {
+       foreach ($entities as $entity) {
+-        $entity_values = (array) $entity;
+-        if (array_diff_assoc($conditions, $entity_values)) {
+-          unset($entities[$entity->{$this->idKey}]);
++        // Iterate over all conditions and compare them to the entity
++        // properties. We cannot use array_diff_assoc() here since the
++        // conditions can be nested arrays, too.
++        foreach ($conditions as $property_name => $condition) {
++          if (is_array($condition)) {
++            // Multiple condition values for one property are treated as OR
++            // operation: only if the value is not at all in the condition array
++            // we remove the entity.
++            if (!in_array($entity->{$property_name}, $condition)) {
++              unset($entities[$entity->{$this->idKey}]);
++              continue 2;
++            }
++          }
++          elseif ($condition != $entity->{$property_name}) {
++            unset($entities[$entity->{$this->idKey}]);
++            continue 2;
++          }
+         }
+       }
+     }
+diff --git a/includes/file.inc b/includes/file.inc
+index 0ec69b7..834699f 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -621,7 +621,11 @@ function file_save(stdClass $file) {
+     module_invoke_all('entity_update', $file, 'file');
+   }
+ 
++  // Clear internal properties.
+   unset($file->original);
++  // Clear the static loading cache.
++  entity_get_controller('file')->resetCache(array($file->fid));
++
+   return $file;
+ }
+ 
+@@ -1293,6 +1297,7 @@ function file_delete(stdClass $file, $force = FALSE) {
+   if (file_unmanaged_delete($file->uri)) {
+     db_delete('file_managed')->condition('fid', $file->fid)->execute();
+     db_delete('file_usage')->condition('fid', $file->fid)->execute();
++    entity_get_controller('file')->resetCache();
+     return TRUE;
+   }
+   return FALSE;
+@@ -1402,8 +1407,9 @@ function file_space_used($uid = NULL, $status = FILE_STATUS_PERMANENT) {
+  * Temporary files are periodically cleaned. To make the file a permanent file,
+  * assign the status and use file_save() to save the changes.
+  *
+- * @param $source
+- *   A string specifying the filepath or URI of the uploaded file to save.
++ * @param $form_field_name
++ *   A string that is the associative array key of the upload form element in
++ *   the form array.
+  * @param $validators
+  *   An optional, associative array of callback functions used to validate the
+  *   file. See file_validate() for a full discussion of the array format.
+@@ -1414,9 +1420,9 @@ function file_space_used($uid = NULL, $status = FILE_STATUS_PERMANENT) {
+  *   (Beware: this is not safe and should only be allowed for trusted users, if
+  *   at all).
+  * @param $destination
+- *   A string containing the URI $source should be copied to.
+- *   This must be a stream wrapper URI. If this value is omitted, Drupal's
+- *   temporary files scheme will be used ("temporary://").
++ *   A string containing the URI that the file should be copied to. This must
++ *   be a stream wrapper URI. If this value is omitted, Drupal's temporary
++ *   files scheme will be used ("temporary://").
+  * @param $replace
+  *   Replace behavior when the destination file already exists:
+  *   - FILE_EXISTS_REPLACE: Replace the existing file.
+@@ -1434,45 +1440,45 @@ function file_space_used($uid = NULL, $status = FILE_STATUS_PERMANENT) {
+  *   - source: Path to the file before it is moved.
+  *   - destination: Path to the file after it is moved (same as 'uri').
+  */
+-function file_save_upload($source, $validators = array(), $destination = FALSE, $replace = FILE_EXISTS_RENAME) {
++function file_save_upload($form_field_name, $validators = array(), $destination = FALSE, $replace = FILE_EXISTS_RENAME) {
+   global $user;
+   static $upload_cache;
+ 
+   // Return cached objects without processing since the file will have
+   // already been processed and the paths in _FILES will be invalid.
+-  if (isset($upload_cache[$source])) {
+-    return $upload_cache[$source];
++  if (isset($upload_cache[$form_field_name])) {
++    return $upload_cache[$form_field_name];
+   }
+ 
+   // Make sure there's an upload to process.
+-  if (empty($_FILES['files']['name'][$source])) {
++  if (empty($_FILES['files']['name'][$form_field_name])) {
+     return NULL;
+   }
+ 
+   // Check for file upload errors and return FALSE if a lower level system
+   // error occurred. For a complete list of errors:
+   // See http://php.net/manual/features.file-upload.errors.php.
+-  switch ($_FILES['files']['error'][$source]) {
++  switch ($_FILES['files']['error'][$form_field_name]) {
+     case UPLOAD_ERR_INI_SIZE:
+     case UPLOAD_ERR_FORM_SIZE:
+-      drupal_set_message(t('The file %file could not be saved, because it exceeds %maxsize, the maximum allowed size for uploads.', array('%file' => $_FILES['files']['name'][$source], '%maxsize' => format_size(file_upload_max_size()))), 'error');
++      drupal_set_message(t('The file %file could not be saved, because it exceeds %maxsize, the maximum allowed size for uploads.', array('%file' => $_FILES['files']['name'][$form_field_name], '%maxsize' => format_size(file_upload_max_size()))), 'error');
+       return FALSE;
+ 
+     case UPLOAD_ERR_PARTIAL:
+     case UPLOAD_ERR_NO_FILE:
+-      drupal_set_message(t('The file %file could not be saved, because the upload did not complete.', array('%file' => $_FILES['files']['name'][$source])), 'error');
++      drupal_set_message(t('The file %file could not be saved, because the upload did not complete.', array('%file' => $_FILES['files']['name'][$form_field_name])), 'error');
+       return FALSE;
+ 
+     case UPLOAD_ERR_OK:
+       // Final check that this is a valid upload, if it isn't, use the
+       // default error handler.
+-      if (is_uploaded_file($_FILES['files']['tmp_name'][$source])) {
++      if (is_uploaded_file($_FILES['files']['tmp_name'][$form_field_name])) {
+         break;
+       }
+ 
+     // Unknown error
+     default:
+-      drupal_set_message(t('The file %file could not be saved. An unknown error has occurred.', array('%file' => $_FILES['files']['name'][$source])), 'error');
++      drupal_set_message(t('The file %file could not be saved. An unknown error has occurred.', array('%file' => $_FILES['files']['name'][$form_field_name])), 'error');
+       return FALSE;
+   }
+ 
+@@ -1480,10 +1486,10 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+   $file = new stdClass();
+   $file->uid      = $user->uid;
+   $file->status   = 0;
+-  $file->filename = trim(drupal_basename($_FILES['files']['name'][$source]), '.');
+-  $file->uri      = $_FILES['files']['tmp_name'][$source];
++  $file->filename = trim(drupal_basename($_FILES['files']['name'][$form_field_name]), '.');
++  $file->uri      = $_FILES['files']['tmp_name'][$form_field_name];
+   $file->filemime = file_get_mimetype($file->filename);
+-  $file->filesize = $_FILES['files']['size'][$source];
++  $file->filesize = $_FILES['files']['size'][$form_field_name];
+ 
+   $extensions = '';
+   if (isset($validators['file_validate_extensions'])) {
+@@ -1540,7 +1546,7 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+     return FALSE;
+   }
+ 
+-  $file->source = $source;
++  $file->source = $form_field_name;
+   // A URI may already have a trailing slash or look like "public://".
+   if (substr($destination, -1) != '/') {
+     $destination .= '/';
+@@ -1549,7 +1555,7 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+   // If file_destination() returns FALSE then $replace == FILE_EXISTS_ERROR and
+   // there's an existing file so we need to bail.
+   if ($file->destination === FALSE) {
+-    drupal_set_message(t('The file %source could not be uploaded because a file by that name already exists in the destination %directory.', array('%source' => $source, '%directory' => $destination)), 'error');
++    drupal_set_message(t('The file %source could not be uploaded because a file by that name already exists in the destination %directory.', array('%source' => $form_field_name, '%directory' => $destination)), 'error');
+     return FALSE;
+   }
+ 
+@@ -1568,7 +1574,7 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+     else {
+       $message .= ' ' . array_pop($errors);
+     }
+-    form_set_error($source, $message);
++    form_set_error($form_field_name, $message);
+     return FALSE;
+   }
+ 
+@@ -1576,8 +1582,8 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+   // directory. This overcomes open_basedir restrictions for future file
+   // operations.
+   $file->uri = $file->destination;
+-  if (!drupal_move_uploaded_file($_FILES['files']['tmp_name'][$source], $file->uri)) {
+-    form_set_error($source, t('File upload error. Could not move uploaded file.'));
++  if (!drupal_move_uploaded_file($_FILES['files']['tmp_name'][$form_field_name], $file->uri)) {
++    form_set_error($form_field_name, t('File upload error. Could not move uploaded file.'));
+     watchdog('file', 'Upload error. Could not move uploaded file %file to destination %destination.', array('%file' => $file->filename, '%destination' => $file->uri));
+     return FALSE;
+   }
+@@ -1597,7 +1603,7 @@ function file_save_upload($source, $validators = array(), $destination = FALSE,
+   // If we made it this far it's safe to record this file in the database.
+   if ($file = file_save($file)) {
+     // Add file to the cache.
+-    $upload_cache[$source] = $file;
++    $upload_cache[$form_field_name] = $file;
+     return $file;
+   }
+   return FALSE;
+diff --git a/includes/form.inc b/includes/form.inc
+index fd80e09..846bcb5 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -15,10 +15,9 @@
+  * reference the form builder function using \@see. For examples, of this see
+  * system_modules_uninstall() or user_pass(), the latter of which has the
+  * following in its doxygen documentation:
+- *
+- * \@ingroup forms
+- * \@see user_pass_validate().
+- * \@see user_pass_submit().
++ * - \@ingroup forms
++ * - \@see user_pass_validate()
++ * - \@see user_pass_submit()
+  *
+  * @}
+  */
+@@ -3101,8 +3100,7 @@ function form_process_radios($element) {
+  * @param $variables
+  *   An associative array containing:
+  *   - element: An associative array containing the properties of the element.
+- *     Properties used: #title, #value, #return_value, #description, #required,
+- *     #attributes, #checked.
++ *     Properties used: #id, #name, #attributes, #checked, #return_value.
+  *
+  * @ingroup themeable
+  */
+@@ -4294,7 +4292,7 @@ function element_validate_number($element, &$form_state) {
+  * returns any user input in the 'results' or 'message' keys of $context,
+  * it must also sanitize them first.
+  *
+- * Sample batch operations:
++ * Sample callback_batch_operation():
+  * @code
+  * // Simple and artificial: load a node of a given type for a given user
+  * function my_function_1($uid, $type, &$context) {
+@@ -4346,7 +4344,7 @@ function element_validate_number($element, &$form_state) {
+  * }
+  * @endcode
+  *
+- * Sample 'finished' callback:
++ * Sample callback_batch_finished():
+  * @code
+  * function batch_test_finished($success, $results, $operations) {
+  *   // The 'success' parameter means no fatal PHP errors were detected. All
+@@ -4385,12 +4383,14 @@ function element_validate_number($element, &$form_state) {
+  * @param $batch_definition
+  *   An associative array defining the batch, with the following elements (all
+  *   are optional except as noted):
+- *   - operations: (required) Array of function calls to be performed.
++ *   - operations: (required) Array of operations to be performed, where each
++ *     item is an array consisting of the name of an implementation of
++ *     callback_batch_operation() and an array of parameter.
+  *     Example:
+  *     @code
+  *     array(
+- *       array('my_function_1', array($arg1)),
+- *       array('my_function_2', array($arg2_1, $arg2_2)),
++ *       array('callback_batch_operation_1', array($arg1)),
++ *       array('callback_batch_operation_2', array($arg2_1, $arg2_2)),
+  *     )
+  *     @endcode
+  *   - title: A safe, translated string to use as the title for the progress
+@@ -4402,10 +4402,10 @@ function element_validate_number($element, &$form_state) {
+  *     @elapsed. Defaults to t('Completed @current of @total.').
+  *   - error_message: Message displayed if an error occurred while processing
+  *     the batch. Defaults to t('An error has occurred.').
+- *   - finished: Name of a function to be executed after the batch has
+- *     completed. This should be used to perform any result massaging that may
+- *     be needed, and possibly save data in $_SESSION for display after final
+- *     page redirection.
++ *   - finished: Name of an implementation of callback_batch_finished(). This is
++ *     executed after the batch has completed. This should be used to perform
++ *     any result massaging that may be needed, and possibly save data in
++ *     $_SESSION for display after final page redirection.
+  *   - file: Path to the file containing the definitions of the 'operations' and
+  *     'finished' functions, for instance if they don't reside in the main
+  *     .module file. The path should be relative to base_path(), and thus should
+diff --git a/includes/iso.inc b/includes/iso.inc
+index 6c66c56..5cad329 100644
+--- a/includes/iso.inc
++++ b/includes/iso.inc
+@@ -53,6 +53,7 @@ function _country_get_predefined_list() {
+     'BM' => $t('Bermuda'),
+     'BN' => $t('Brunei'),
+     'BO' => $t('Bolivia'),
++    'BQ' => $t('Caribbean Netherlands'),
+     'BR' => $t('Brazil'),
+     'BS' => $t('Bahamas'),
+     'BT' => $t('Bhutan'),
+@@ -74,8 +75,8 @@ function _country_get_predefined_list() {
+     'CO' => $t('Colombia'),
+     'CR' => $t('Costa Rica'),
+     'CU' => $t('Cuba'),
+-    'CW' => $t('Curaçao'),
+     'CV' => $t('Cape Verde'),
++    'CW' => $t('Curaçao'),
+     'CX' => $t('Christmas Island'),
+     'CY' => $t('Cyprus'),
+     'CZ' => $t('Czech Republic'),
+@@ -230,8 +231,10 @@ function _country_get_predefined_list() {
+     'SN' => $t('Senegal'),
+     'SO' => $t('Somalia'),
+     'SR' => $t('Suriname'),
++    'SS' => $t('South Sudan'),
+     'ST' => $t('Sao Tome and Principe'),
+     'SV' => $t('El Salvador'),
++    'SX' => $t('Sint Maarten'),
+     'SY' => $t('Syria'),
+     'SZ' => $t('Swaziland'),
+     'TC' => $t('Turks and Caicos Islands'),
+diff --git a/includes/menu.inc b/includes/menu.inc
+index aef557a..fa5a71e 100644
+--- a/includes/menu.inc
++++ b/includes/menu.inc
+@@ -1000,7 +1000,7 @@ function menu_tree($menu_name) {
+ }
+ 
+ /**
+- * Returns a rendered menu tree.
++ * Returns an output structure for rendering a menu tree.
+  *
+  * The menu item's LI element is given one of the following classes:
+  * - expanded: The menu item is showing its submenu.
+diff --git a/includes/path.inc b/includes/path.inc
+index 234430e..2e35711 100644
+--- a/includes/path.inc
++++ b/includes/path.inc
+@@ -560,8 +560,8 @@ function drupal_valid_path($path, $dynamic_allowed = FALSE) {
+   elseif ($dynamic_allowed && preg_match('/\/\%/', $path)) {
+     // Path is dynamic (ie 'user/%'), so check directly against menu_router table.
+     if ($item = db_query("SELECT * FROM {menu_router} where path = :path", array(':path' => $path))->fetchAssoc()) {
+-      $item['link_path']  = $form_item['link_path'];
+-      $item['link_title'] = $form_item['link_title'];
++      $item['link_path']  = $item['path'];
++      $item['link_title'] = $item['title'];
+       $item['external']   = FALSE;
+       $item['options'] = '';
+       _menu_link_translate($item);
+diff --git a/includes/registry.inc b/includes/registry.inc
+index f6c81eb..5fc7674 100644
+--- a/includes/registry.inc
++++ b/includes/registry.inc
+@@ -10,7 +10,7 @@
+  * @{
+  * The code registry engine.
+  *
+- * Drupal maintains an internal registry of all functions or classes in the
++ * Drupal maintains an internal registry of all interfaces or classes in the
+  * system, allowing it to lazy-load code files as needed (reducing the amount
+  * of code that must be parsed on each request).
+  */
+@@ -120,7 +120,10 @@ function registry_get_parsed_files() {
+ }
+ 
+ /**
+- * Parse all files that have changed since the registry was last built, and save their function and class listings.
++ * Parse all changed files and save their interface and class listings.
++ *
++ * Parse all files that have changed since the registry was last built, and save
++ * their interface and class listings.
+  *
+  * @param $files
+  *  The list of files to check and parse.
+@@ -149,7 +152,7 @@ function _registry_parse_files($files) {
+ }
+ 
+ /**
+- * Parse a file and save its function and class listings.
++ * Parse a file and save its interface and class listings.
+  *
+  * @param $filename
+  *   Name of the file we are going to parse.
+diff --git a/misc/ajax.js b/misc/ajax.js
+index 63dd65f..29483b4 100644
+--- a/misc/ajax.js
++++ b/misc/ajax.js
+@@ -622,7 +622,7 @@ Drupal.ajax.prototype.commands = {
+    * Command to update a form's build ID.
+    */
+   updateBuildId: function(ajax, response, status) {
+-    $('input[name="form_build_id"][value="' + response.old + '"]').val(response.new);
++    $('input[name="form_build_id"][value="' + response['old'] + '"]').val(response['new']);
+   }
+ };
+ 
+diff --git a/modules/aggregator/aggregator.install b/modules/aggregator/aggregator.install
+index b84556a..d6cc039 100644
+--- a/modules/aggregator/aggregator.install
++++ b/modules/aggregator/aggregator.install
+@@ -260,6 +260,7 @@ function aggregator_schema() {
+     'primary key' => array('iid'),
+     'indexes' => array(
+       'fid' => array('fid'),
++      'timestamp' => array('timestamp'),
+     ),
+     'foreign keys' => array(
+       'aggregator_feed' => array(
+@@ -326,5 +327,14 @@ function aggregator_update_7003() {
+ }
+ 
+ /**
++ * Add index on timestamp.
++ */
++function aggregator_update_7004() {
++  if (!db_index_exists('aggregator_item', 'timestamp')) {
++    db_add_index('aggregator_item', 'timestamp', array('timestamp'));
++  }
++}
++
++/**
+  * @} End of "addtogroup updates-7.x-extra"
+  */
+diff --git a/modules/aggregator/aggregator.test b/modules/aggregator/aggregator.test
+index 18d5b33..d84ee78 100644
+--- a/modules/aggregator/aggregator.test
++++ b/modules/aggregator/aggregator.test
+@@ -288,6 +288,10 @@ EOF;
+     return $GLOBALS['base_url'] . '/' . drupal_get_path('module', 'aggregator') . '/tests/aggregator_test_atom.xml';
+   }
+ 
++  function getHtmlEntitiesSample() {
++    return $GLOBALS['base_url'] . '/' . drupal_get_path('module', 'aggregator') . '/tests/aggregator_test_title_entities.xml';
++  }
++
+   /**
+    * Creates sample article nodes.
+    *
+@@ -1016,4 +1020,15 @@ class FeedParserTestCase extends AggregatorTestCase {
+     $this->assertText('Some text.');
+     $this->assertEqual('urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a', db_query('SELECT guid FROM {aggregator_item} WHERE link = :link', array(':link' => 'http://example.org/2003/12/13/atom03'))->fetchField(), 'Atom entry id element is parsed correctly.');
+   }
++
++  /**
++   * Tests a feed that uses HTML entities in item titles.
++   */
++  function testHtmlEntitiesSample() {
++    $feed = $this->createFeed($this->getHtmlEntitiesSample());
++    aggregator_refresh($feed);
++    $this->drupalGet('aggregator/sources/' . $feed->fid);
++    $this->assertResponse(200, format_string('Feed %name exists.', array('%name' => $feed->title)));
++    $this->assertRaw("Quote&quot; Amp&amp;");
++  }
+ }
+diff --git a/modules/aggregator/tests/aggregator_test_title_entities.xml b/modules/aggregator/tests/aggregator_test_title_entities.xml
+new file mode 100644
+index 0000000..e526e44
+--- /dev/null
++++ b/modules/aggregator/tests/aggregator_test_title_entities.xml
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<rss version="0.91">
++  <channel>
++    <title>Example with Entities</title>
++    <link>http://example.com</link>
++    <description>Example RSS Feed With HTML Entities in Title</description>
++    <language>en-us</language>
++    <item>
++      <title>Quote&quot; Amp&amp;</title>
++      <link>http://example.com/example-turns-one</link>
++      <description>Some text.</description>
++    </item>
++  </channel>
++</rss>
+diff --git a/modules/block/block.api.php b/modules/block/block.api.php
+index d8e129e..d7453b2 100644
+--- a/modules/block/block.api.php
++++ b/modules/block/block.api.php
+@@ -87,13 +87,13 @@
+  *     and any value provided can be modified by a user on the block
+  *     configuration screen.
+  *   - pages: (optional) See 'visibility' above. A string that contains one or
+- *     more page paths separated by '\n', '\r', or '\r\n' when 'visibility' is
+- *     set to BLOCK_VISIBILITY_NOTLISTED or BLOCK_VISIBILITY_LISTED, or custom
+- *     PHP code when 'visibility' is set to BLOCK_VISIBILITY_PHP. Paths may use
+- *     '*' as a wildcard (matching any number of characters); '<front>'
+- *     designates the site's front page. For BLOCK_VISIBILITY_PHP, the PHP
+- *     code's return value should be TRUE if the block is to be made visible or
+- *     FALSE if the block should not be visible.
++ *     more page paths separated by "\n", "\r", or "\r\n" when 'visibility' is
++ *     set to BLOCK_VISIBILITY_NOTLISTED or BLOCK_VISIBILITY_LISTED (example:
++ *     "<front>\nnode/1"), or custom PHP code when 'visibility' is set to
++ *     BLOCK_VISIBILITY_PHP. Paths may use '*' as a wildcard (matching any
++ *     number of characters); '<front>' designates the site's front page. For
++ *     BLOCK_VISIBILITY_PHP, the PHP code's return value should be TRUE if the
++ *     block is to be made visible or FALSE if the block should not be visible.
+  *
+  * For a detailed usage example, see block_example.module.
+  *
+diff --git a/modules/comment/comment.module b/modules/comment/comment.module
+index 6f6c04b..3c94200 100644
+--- a/modules/comment/comment.module
++++ b/modules/comment/comment.module
+@@ -2304,7 +2304,7 @@ function template_preprocess_comment(&$variables) {
+   $variables['signature'] = $comment->signature;
+ 
+   $uri = entity_uri('comment', $comment);
+-  $uri['options'] += array('attributes' => array('class' => 'permalink', 'rel' => 'bookmark'));
++  $uri['options'] += array('attributes' => array('class' => array('permalink'), 'rel' => 'bookmark'));
+ 
+   $variables['title']     = l($comment->subject, $uri['path'], $uri['options']);
+   $variables['permalink'] = l(t('Permalink'), $uri['path'], $uri['options']);
+diff --git a/modules/field/field.api.php b/modules/field/field.api.php
+index b0fc6a4..365fc40 100644
+--- a/modules/field/field.api.php
++++ b/modules/field/field.api.php
+@@ -1,4 +1,8 @@
+ <?php
++/**
++ * @file
++ * Hooks provided by the Field module.
++ */
+ 
+ /**
+  * @addtogroup hooks
+@@ -37,6 +41,8 @@
+  *   - delete: (optional) String containing markup (normally a link) used as the
+  *     element's 'delete' operation in the administration interface. Only for
+  *     'form' context.
++ *
++ * @ingroup field_types
+  */
+ function hook_field_extra_fields() {
+   $extra['node']['poll'] = array(
+@@ -76,6 +82,8 @@ function hook_field_extra_fields() {
+  *   The associative array of 'pseudo-field' components.
+  *
+  * @see hook_field_extra_fields()
++ *
++ * @ingroup field_types
+  */
+ function hook_field_extra_fields_alter(&$info) {
+   // Force node title to always be at the top of the list by default.
+@@ -656,6 +664,8 @@ function hook_field_delete_revision($entity_type, $entity, $field, $instance, $l
+  *   The source entity from which field values are being copied.
+  * @param $source_langcode
+  *   The source language from which field values are being copied.
++ *
++ * @ingroup field_language
+  */
+ function hook_field_prepare_translation($entity_type, $entity, $field, $instance, $langcode, &$items, $source_entity, $source_langcode) {
+   // If the translating user is not permitted to use the assigned text format,
+@@ -1250,7 +1260,7 @@ function hook_field_formatter_view($entity_type, $entity, $field, $instance, $la
+  */
+ 
+ /**
+- * @ingroup field_attach
++ * @addtogroup field_attach
+  * @{
+  */
+ 
+@@ -1312,6 +1322,13 @@ function hook_field_attach_load($entity_type, $entities, $age, $options) {
+  * This hook is invoked after the field module has performed the operation.
+  *
+  * See field_attach_validate() for details and arguments.
++ *
++ * @param $entity_type
++ *   The type of $entity; e.g., 'node' or 'user'.
++ * @param $entity
++ *   The entity with fields to validate.
++ * @param array $errors
++ *   An associative array of errors keyed by field_name, language, delta.
+  */
+ function hook_field_attach_validate($entity_type, $entity, &$errors) {
+   // @todo Needs function body.
+@@ -1516,6 +1533,8 @@ function hook_field_attach_prepare_translation_alter(&$entity, $context) {
+  *   - entity_type: The type of the entity to be displayed.
+  *   - entity: The entity with fields to render.
+  *   - langcode: The language code $entity has to be displayed in.
++ *
++ * @ingroup field_language
+  */
+ function hook_field_language_alter(&$display_language, $context) {
+   // Do not apply core language fallback rules if they are disabled or if Locale
+@@ -1537,6 +1556,8 @@ function hook_field_language_alter(&$display_language, $context) {
+  *   An associative array containing:
+  *   - entity_type: The type of the entity the field is attached to.
+  *   - field: A field data structure.
++ *
++ * @ingroup field_language
+  */
+ function hook_field_available_languages_alter(&$languages, $context) {
+   // Add an unavailable language.
+@@ -1587,7 +1608,7 @@ function hook_field_attach_rename_bundle($entity_type, $bundle_old, $bundle_new)
+  * @param $entity_type
+  *   The type of entity; for example, 'node' or 'user'.
+  * @param $bundle
+- *   The bundle that was just deleted.
++ *   The name of the bundle that was just deleted.
+  * @param $instances
+  *   An array of all instances that existed for the bundle before it was
+  *   deleted.
+@@ -1602,7 +1623,7 @@ function hook_field_attach_delete_bundle($entity_type, $bundle, $instances) {
+ }
+ 
+ /**
+- * @} End of "defgroup field_attach".
++ * @} End of "addtogroup field_attach".
+  */
+ 
+ /**
+@@ -2263,6 +2284,10 @@ function hook_field_storage_pre_update($entity_type, $entity, &$skip_fields) {
+ }
+ 
+ /**
++ * @} End of "addtogroup field_storage
++ */
++
++/**
+  * Returns the maximum weight for the entity components handled by the module.
+  *
+  * Field API takes care of fields and 'extra_fields'. This hook is intended for
+@@ -2275,9 +2300,12 @@ function hook_field_storage_pre_update($entity_type, $entity, &$skip_fields) {
+  * @param $context
+  *   The context for which the maximum weight is requested. Either 'form', or
+  *   the name of a view mode.
++ *
+  * @return
+  *   The maximum weight of the entity's components, or NULL if no components
+  *   were found.
++ *
++ * @ingroup field_info
+  */
+ function hook_field_info_max_weight($entity_type, $bundle, $context) {
+   $weights = array();
+@@ -2290,6 +2318,11 @@ function hook_field_info_max_weight($entity_type, $bundle, $context) {
+ }
+ 
+ /**
++ * @addtogroup field_types
++ * @{
++ */
++
++/**
+  * Alters the display settings of a field before it gets displayed.
+  *
+  * Note that instead of hook_field_display_alter(), which is called for all
+@@ -2356,6 +2389,10 @@ function hook_field_display_ENTITY_TYPE_alter(&$display, $context) {
+ }
+ 
+ /**
++ * @} End of "addtogroup field_types
++ */
++
++/**
+  * Alters the display settings of pseudo-fields before an entity is displayed.
+  *
+  * This hook is called once per displayed entity. If the result of the hook
+@@ -2370,6 +2407,8 @@ function hook_field_display_ENTITY_TYPE_alter(&$display, $context) {
+  *   - entity_type: The entity type; e.g., 'node' or 'user'.
+  *   - bundle: The bundle name.
+  *   - view_mode: The view mode, e.g. 'full', 'teaser'...
++ *
++ * @ingroup field_types
+  */
+ function hook_field_extra_fields_display_alter(&$displays, $context) {
+   if ($context['entity_type'] == 'taxonomy_term' && $context['view_mode'] == 'full') {
+@@ -2399,6 +2438,8 @@ function hook_field_extra_fields_display_alter(&$displays, $context) {
+  *   - instance: The instance of the field.
+  *
+  * @see hook_field_widget_properties_alter()
++ *
++ * @ingroup field_widget
+  */
+ function hook_field_widget_properties_ENTITY_TYPE_alter(&$widget, $context) {
+   // Change a widget's type according to the time of day.
+@@ -2410,10 +2451,6 @@ function hook_field_widget_properties_ENTITY_TYPE_alter(&$widget, $context) {
+ }
+ 
+ /**
+- * @} End of "addtogroup field_storage".
+- */
+-
+-/**
+  * @addtogroup field_crud
+  * @{
+  */
+@@ -2608,6 +2645,8 @@ function hook_field_purge_instance($instance) {
+  *
+  * @param $field
+  *   The field being purged.
++ *
++ * @ingroup field_storage
+  */
+ function hook_field_storage_purge_field($field) {
+   $table_name = _field_sql_storage_tablename($field);
+@@ -2625,6 +2664,8 @@ function hook_field_storage_purge_field($field) {
+  *
+  * @param $instance
+  *   The instance being purged.
++ *
++ * @ingroup field_storage
+  */
+ function hook_field_storage_purge_field_instance($instance) {
+   db_delete('my_module_field_instance_info')
+@@ -2646,6 +2687,8 @@ function hook_field_storage_purge_field_instance($instance) {
+  *   The (possibly deleted) field whose data is being purged.
+  * @param $instance
+  *   The deleted field instance whose data is being purged.
++ *
++ * @ingroup field_storage
+  */
+ function hook_field_storage_purge($entity_type, $entity, $field, $instance) {
+   list($id, $vid, $bundle) = entity_extract_ids($entity_type, $entity);
+@@ -2685,6 +2728,8 @@ function hook_field_storage_purge($entity_type, $entity, $field, $instance) {
+  *
+  * @return
+  *   TRUE if the operation is allowed, and FALSE if the operation is denied.
++ *
++ * @ingroup field_types
+  */
+ function hook_field_access($op, $field, $entity_type, $entity, $account) {
+   if ($field['field_name'] == 'field_of_interest' && $op == 'edit') {
+diff --git a/modules/field_ui/field_ui.admin.inc b/modules/field_ui/field_ui.admin.inc
+index 5c6f529..5d74a5c 100644
+--- a/modules/field_ui/field_ui.admin.inc
++++ b/modules/field_ui/field_ui.admin.inc
+@@ -936,7 +936,7 @@ function field_ui_display_overview_form($form, &$form_state, $entity_type, $bund
+   $field_label_options = array(
+     'above' => t('Above'),
+     'inline' => t('Inline'),
+-    'hidden' => t('<Hidden>'),
++    'hidden' => '<' . t('Hidden') . '>',
+   );
+   $extra_visibility_options = array(
+     'visible' => t('Visible'),
+@@ -992,7 +992,7 @@ function field_ui_display_overview_form($form, &$form_state, $entity_type, $bund
+     );
+ 
+     $formatter_options = field_ui_formatter_options($field['type']);
+-    $formatter_options['hidden'] = t('<Hidden>');
++    $formatter_options['hidden'] = '<' . t('Hidden') . '>';
+     $table[$name]['format'] = array(
+       'type' => array(
+         '#type' => 'select',
+diff --git a/modules/file/file.field.inc b/modules/file/file.field.inc
+index d540c0a..59b547a 100644
+--- a/modules/file/file.field.inc
++++ b/modules/file/file.field.inc
+@@ -768,7 +768,7 @@ function file_field_widget_submit($form, &$form_state) {
+   $langcode = $element['#language'];
+   $parents = $element['#field_parents'];
+ 
+-  $submitted_values = drupal_array_get_nested_value($form_state['values'], array_slice($button['#array_parents'], 0, -2));
++  $submitted_values = drupal_array_get_nested_value($form_state['values'], array_slice($button['#parents'], 0, -2));
+   foreach ($submitted_values as $delta => $submitted_value) {
+     if (!$submitted_value['fid']) {
+       unset($submitted_values[$delta]);
+@@ -779,7 +779,7 @@ function file_field_widget_submit($form, &$form_state) {
+   $submitted_values = array_values($submitted_values);
+ 
+   // Update form_state values.
+-  drupal_array_set_nested_value($form_state['values'], array_slice($button['#array_parents'], 0, -2), $submitted_values);
++  drupal_array_set_nested_value($form_state['values'], array_slice($button['#parents'], 0, -2), $submitted_values);
+ 
+   // Update items.
+   $field_state = field_form_get_state($parents, $field_name, $langcode, $form_state);
+diff --git a/modules/file/file.js b/modules/file/file.js
+index 0135a3b..fffec6b 100644
+--- a/modules/file/file.js
++++ b/modules/file/file.js
+@@ -83,7 +83,7 @@ Drupal.file = Drupal.file || {
+           '%filename': this.value.replace('C:\\fakepath\\', ''),
+           '%extensions': extensionPattern.replace(/\|/g, ', ')
+         });
+-        $(this).closest('div.form-managed-file').prepend('<div class="messages error file-upload-js-error">' + error + '</div>');
++        $(this).closest('div.form-managed-file').prepend('<div class="messages error file-upload-js-error" aria-live="polite">' + error + '</div>');
+         this.value = '';
+         return false;
+       }
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 2afe901..5c2b8c9 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -739,8 +739,8 @@ function filter_list_format($format_id) {
+  * @param $text
+  *   The text to be filtered.
+  * @param $format_id
+- *   (optional) The format ID of the text to be filtered. If no format is
+- *   assigned, the fallback format will be used. Defaults to NULL.
++ *   (optional) The machine name of the filter format to be used to filter the
++ *   text. Defaults to the fallback format. See filter_fallback_format().
+  * @param $langcode
+  *   (optional) The language code of the text to be filtered, e.g. 'en' for
+  *   English. This allows filters to be language aware so language specific
+diff --git a/modules/image/image.admin.inc b/modules/image/image.admin.inc
+index 7e62621..cebe894 100644
+--- a/modules/image/image.admin.inc
++++ b/modules/image/image.admin.inc
+@@ -592,15 +592,15 @@ function image_crop_form($data) {
+     '#type' => 'radios',
+     '#title' => t('Anchor'),
+     '#options' => array(
+-      'left-top'      => t('Top') . ' ' . t('Left'),
+-      'center-top'    => t('Top') . ' ' . t('Center'),
+-      'right-top'     => t('Top') . ' ' . t('Right'),
+-      'left-center'   => t('Center') . ' ' . t('Left'),
++      'left-top'      => t('Top left'),
++      'center-top'    => t('Top center'),
++      'right-top'     => t('Top right'),
++      'left-center'   => t('Center left'),
+       'center-center' => t('Center'),
+-      'right-center'  => t('Center') . ' ' . t('Right'),
+-      'left-bottom'   => t('Bottom') . ' ' . t('Left'),
+-      'center-bottom' => t('Bottom') . ' ' . t('Center'),
+-      'right-bottom'  => t('Bottom') . ' ' . t('Right'),
++      'right-center'  => t('Center right'),
++      'left-bottom'   => t('Bottom left'),
++      'center-bottom' => t('Bottom center'),
++      'right-bottom'  => t('Bottom right'),
+     ),
+     '#theme' => 'image_anchor',
+     '#default_value' => $data['anchor'],
+diff --git a/modules/node/node.admin.inc b/modules/node/node.admin.inc
+index 0d0bbc0..35f4c1d 100644
+--- a/modules/node/node.admin.inc
++++ b/modules/node/node.admin.inc
+@@ -471,6 +471,7 @@ function node_admin_nodes() {
+   $header['operations'] = array('data' => t('Operations'));
+ 
+   $query = db_select('node', 'n')->extend('PagerDefault')->extend('TableSort');
++  $query->addTag('node_admin_filter');
+   node_build_filter_query($query);
+ 
+   if (!user_access('bypass node access')) {
+diff --git a/modules/node/node.api.php b/modules/node/node.api.php
+index f8dcfde..9502676 100644
+--- a/modules/node/node.api.php
++++ b/modules/node/node.api.php
+@@ -1033,9 +1033,17 @@ function hook_node_type_delete($info) {
+  * This hook is invoked only on the module that defines the node's content type
+  * (use hook_node_delete() to respond to all node deletions).
+  *
+- * This hook is invoked from node_delete_multiple() after the node has been
+- * removed from the node table in the database, before hook_node_delete() is
+- * invoked, and before field_attach_delete() is called.
++ * This hook is invoked from node_delete_multiple() before hook_node_delete()
++ * is invoked and before field_attach_delete() is called.
++ *
++ * Note that when this hook is invoked, the changes have not yet been written
++ * to the database, because a database transaction is still in progress. The
++ * transaction is not finalized until the delete operation is entirely
++ * completed and node_delete_multiple() goes out of scope. You should not rely
++ * on data in the database at this time as it is not updated yet. You should
++ * also note that any write/update database queries executed from this hook are
++ * also not committed immediately. Check node_delete_multiple() and
++ * db_transaction() for more info.
+  *
+  * @param $node
+  *   The node that is being deleted.
+@@ -1063,21 +1071,19 @@ function hook_delete($node) {
+  * @ingroup node_api_hooks
+  */
+ function hook_prepare($node) {
+-  if ($file = file_check_upload($field_name)) {
+-    $file = file_save_upload($field_name, _image_filename($file->filename, NULL, TRUE));
+-    if ($file) {
+-      if (!image_get_info($file->uri)) {
+-        form_set_error($field_name, t('Uploaded file is not a valid image'));
+-        return;
+-      }
+-    }
+-    else {
++  $file = file_save_upload($field_name, _image_filename($file->filename, NULL, TRUE));
++  if ($file) {
++    if (!image_get_info($file->uri)) {
++      form_set_error($field_name, t('Uploaded file is not a valid image'));
+       return;
+     }
+-    $node->images['_original'] = $file->uri;
+-    _image_build_derivatives($node, TRUE);
+-    $node->new_file = TRUE;
+   }
++  else {
++    return;
++  }
++  $node->images['_original'] = $file->uri;
++  _image_build_derivatives($node, TRUE);
++  $node->new_file = TRUE;
+ }
+ 
+ /**
+diff --git a/modules/node/node.module b/modules/node/node.module
+index 8f247cd..5a4e019 100644
+--- a/modules/node/node.module
++++ b/modules/node/node.module
+@@ -1683,7 +1683,7 @@ function node_search_admin() {
+   );
+   $form['content_ranking']['#theme'] = 'node_search_admin';
+   $form['content_ranking']['info'] = array(
+-    '#value' => '<em>' . t('The following numbers control which properties the content search should favor when ordering the results. Higher numbers mean more influence, zero means the property is ignored. Changing these numbers does not require the search index to be rebuilt. Changes take effect immediately.') . '</em>'
++    '#markup' => '<p><em>' . t('Influence is a numeric multiplier used in ordering search results. A higher number means the corresponding factor has more influence on search results; zero means the factor is ignored. Changing these numbers does not require the search index to be rebuilt. Changes take effect immediately.') . '</em></p>'
+   );
+ 
+   // Note: reversed to reflect that higher number = higher ranking.
+@@ -1870,7 +1870,7 @@ function theme_node_search_admin($variables) {
+ 
+   $output = drupal_render($form['info']);
+ 
+-  $header = array(t('Factor'), t('Weight'));
++  $header = array(t('Factor'), t('Influence'));
+   foreach (element_children($form['factors']) as $key) {
+     $row = array();
+     $row[] = $form['factors'][$key]['#title'];
+@@ -3290,6 +3290,17 @@ function node_query_entity_field_access_alter(QueryAlterableInterface $query) {
+ /**
+  * Helper for node access functions.
+  *
++ * Queries tagged with 'node_access' that are not against the {node} table
++ * should add the base table as metadata. For example:
++ * @code
++ *   $query
++ *     ->addTag('node_access')
++ *     ->addMetaData('base_table', 'taxonomy_index');
++ * @endcode
++ * If the query is not against the {node} table, an attempt is made to guess
++ * the table, but is not recommended to rely on this as it is deprecated and not
++ * allowed in Drupal 8. It is always safer to provide the table.
++ *
+  * @param $query
+  *   The query to add conditions to.
+  * @param $type
+diff --git a/modules/node/node.test b/modules/node/node.test
+index bfe3717..0777e11 100644
+--- a/modules/node/node.test
++++ b/modules/node/node.test
+@@ -571,6 +571,8 @@ class NodeCreationTestCase extends DrupalWebTestCase {
+     );
+ 
+     try {
++      // An exception is generated by node_test_exception_node_insert() if the
++      // title is 'testing_transaction_exception'.
+       node_save((object) $edit);
+       $this->fail(t('Expected exception has not been thrown.'));
+     }
+@@ -1374,7 +1376,7 @@ class NodeSaveTestCase extends DrupalWebTestCase {
+    * @see node_test_node_insert()
+    */
+   function testNodeSaveOnInsert() {
+-    // node_test_node_insert() tiggers a save on insert if the title equals
++    // node_test_node_insert() triggers a save on insert if the title equals
+     // 'new'.
+     $node = $this->drupalCreateNode(array('title' => 'new'));
+     $this->assertEqual($node->title, 'Node ' . $node->nid, 'Node saved on node insert.');
+@@ -2442,6 +2444,35 @@ class NodeTokenReplaceTestCase extends DrupalWebTestCase {
+       $output = token_replace($input, array('node' => $node), array('language' => $language, 'sanitize' => FALSE));
+       $this->assertEqual($output, $expected, format_string('Unsanitized node token %token replaced.', array('%token' => $input)));
+     }
++
++    // Repeat for a node without a summary.
++    $settings['body'] = array(LANGUAGE_NONE => array(array('value' => $this->randomName(32), 'summary' => '')));
++    $node = $this->drupalCreateNode($settings);
++
++    // Load node (without summary) so that the body and summary fields are
++    // structured properly.
++    $node = node_load($node->nid);
++    $instance = field_info_instance('node', 'body', $node->type);
++
++    // Generate and test sanitized token - use full body as expected value.
++    $tests = array();
++    $tests['[node:summary]'] = _text_sanitize($instance, $langcode, $node->body[$langcode][0], 'value');
++
++    // Test to make sure that we generated something for each token.
++    $this->assertFalse(in_array(0, array_map('strlen', $tests)), 'No empty tokens generated for node without a summary.');
++
++    foreach ($tests as $input => $expected) {
++      $output = token_replace($input, array('node' => $node), array('language' => $language));
++      $this->assertEqual($output, $expected, format_string('Sanitized node token %token replaced for node without a summary.', array('%token' => $input)));
++    }
++
++    // Generate and test unsanitized tokens.
++    $tests['[node:summary]'] = $node->body[$langcode][0]['value'];
++
++    foreach ($tests as $input => $expected) {
++      $output = token_replace($input, array('node' => $node), array('language' => $language, 'sanitize' => FALSE));
++      $this->assertEqual($output, $expected, format_string('Unsanitized node token %token replaced for node without a summary.', array('%token' => $input)));
++    }
+   }
+ }
+ 
+diff --git a/modules/node/node.tokens.inc b/modules/node/node.tokens.inc
+index e43db5e..e63c751 100644
+--- a/modules/node/node.tokens.inc
++++ b/modules/node/node.tokens.inc
+@@ -136,10 +136,29 @@ function node_tokens($type, $tokens, array $data = array(), array $options = arr
+         case 'body':
+         case 'summary':
+           if ($items = field_get_items('node', $node, 'body', $language_code)) {
+-            $column = ($name == 'body') ? 'value' : 'summary';
+             $instance = field_info_instance('node', 'body', $node->type);
+             $field_langcode = field_language('node', $node, 'body', $language_code);
+-            $replacements[$original] = $sanitize ? _text_sanitize($instance, $field_langcode, $items[0], $column) : $items[0][$column];
++            // If the summary was requested and is not empty, use it.
++            if ($name == 'summary' && !empty($items[0]['summary'])) {
++              $output = $sanitize ? _text_sanitize($instance, $field_langcode, $items[0], 'summary') : $items[0]['summary'];
++            }
++            // Attempt to provide a suitable version of the 'body' field.
++            else {
++              $output = $sanitize ? _text_sanitize($instance, $field_langcode, $items[0], 'value') : $items[0]['value'];
++              // A summary was requested.
++              if ($name == 'summary') {
++                if (isset($instance['display']['teaser']['settings']['trim_length'])) {
++                  $trim_length = $instance['display']['teaser']['settings']['trim_length'];
++                }
++                else {
++                  // Use default value.
++                  $trim_length = NULL;
++                }
++                // Generate an optionally trimmed summary of the body field.
++                $output = text_summary($output, $instance['settings']['text_processing'] ? $items[0]['format'] : NULL, $trim_length);
++              }
++            }
++            $replacements[$original] = $output;
+           }
+           break;
+ 
+diff --git a/modules/search/search.test b/modules/search/search.test
+index 09c879b..19f4e55 100644
+--- a/modules/search/search.test
++++ b/modules/search/search.test
+@@ -11,6 +11,9 @@ define('SEARCH_TYPE', '_test_');
+ define('SEARCH_TYPE_2', '_test2_');
+ define('SEARCH_TYPE_JPN', '_test3_');
+ 
++/**
++ * Indexes content and queries it.
++ */
+ class SearchMatchTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+@@ -307,6 +310,9 @@ class SearchPageText extends DrupalWebTestCase {
+   }
+ }
+ 
++/**
++ * Indexes content and tests the advanced search form.
++ */
+ class SearchAdvancedSearchForm extends DrupalWebTestCase {
+   protected $node;
+ 
+@@ -370,6 +376,9 @@ class SearchAdvancedSearchForm extends DrupalWebTestCase {
+   }
+ }
+ 
++/**
++ * Indexes content and tests ranking factors.
++ */
+ class SearchRankingTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+@@ -580,6 +589,9 @@ class SearchRankingTestCase extends DrupalWebTestCase {
+   }
+ }
+ 
++/**
++ * Tests the rendering of the search block.
++ */
+ class SearchBlockTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+@@ -727,7 +739,7 @@ class SearchCommentTestCase extends DrupalWebTestCase {
+   public static function getInfo() {
+     return array(
+       'name' => 'Comment Search tests',
+-      'description' => 'Verify text formats and filters used elsewhere.',
++      'description' => 'Test integration searching comments.',
+       'group' => 'Search',
+     );
+   }
+diff --git a/modules/simpletest/drupal_web_test_case.php b/modules/simpletest/drupal_web_test_case.php
+index d71b1e1..414a377 100644
+--- a/modules/simpletest/drupal_web_test_case.php
++++ b/modules/simpletest/drupal_web_test_case.php
+@@ -1145,7 +1145,7 @@ class DrupalWebTestCase extends DrupalTestCase {
+   }
+ 
+   /**
+-   * Internal helper function; Create a role with specified permissions.
++   * Creates a role with specified permissions.
+    *
+    * @param $permissions
+    *   Array of permission names to assign to role.
+@@ -2294,6 +2294,14 @@ class DrupalWebTestCase extends DrupalTestCase {
+     }
+     $this->drupalSetContent($content);
+     $this->drupalSetSettings($drupal_settings);
++
++    $verbose = 'AJAX POST request to: ' . $path;
++    $verbose .= '<br />AJAX callback path: ' . $ajax_path;
++    $verbose .= '<hr />Ending URL: ' . $this->getUrl();
++    $verbose .= '<hr />' . $this->content;
++
++    $this->verbose($verbose);
++
+     return $return;
+   }
+ 
+diff --git a/modules/simpletest/simpletest.info b/modules/simpletest/simpletest.info
+index 5583c2f..7b139ba 100644
+--- a/modules/simpletest/simpletest.info
++++ b/modules/simpletest/simpletest.info
+@@ -15,6 +15,7 @@ files[] = tests/bootstrap.test
+ files[] = tests/cache.test
+ files[] = tests/common.test
+ files[] = tests/database_test.test
++files[] = tests/entity_crud.test
+ files[] = tests/entity_crud_hook_test.test
+ files[] = tests/entity_query.test
+ files[] = tests/error.test
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index 44eecdc..f6e03b0 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -1022,8 +1022,8 @@ class DrupalHTTPRequestTestCase extends DrupalWebTestCase {
+     $result = drupal_http_request($auth);
+ 
+     $this->drupalSetContent($result->data);
+-    $this->assertRaw($username, '$_SERVER["PHP_AUTH_USER"] is passed correctly.');
+-    $this->assertRaw($password, '$_SERVER["PHP_AUTH_PW"] is passed correctly.');
++    $this->assertRaw($username, 'Username is passed correctly.');
++    $this->assertRaw($password, 'Password is passed correctly.');
+   }
+ 
+   function testDrupalHTTPRequestRedirect() {
+@@ -2785,3 +2785,28 @@ class ArrayDiffUnitTest extends DrupalUnitTestCase {
+     $this->assertIdentical(drupal_array_diff_assoc_recursive($this->array1, $this->array2), $expected);
+   }
+ }
++
++/**
++ * Tests the functionality of drupal_get_query_array().
++ */
++class DrupalGetQueryArrayTestCase extends DrupalWebTestCase {
++
++  public static function getInfo() {
++    return array(
++      'name' => 'Query parsing using drupal_get_query_array()',
++      'description' => 'Tests that drupal_get_query_array() correctly parses query parameters.',
++      'group' => 'System',
++    );
++  }
++
++  /**
++   * Tests that drupal_get_query_array() correctly explodes query parameters.
++   */
++  public function testDrupalGetQueryArray() {
++    $url = "http://my.site.com/somepath?foo=/content/folder[@name='foo']/folder[@name='bar']";
++    $parsed = parse_url($url);
++    $result = drupal_get_query_array($parsed['query']);
++    $this->assertEqual($result['foo'], "/content/folder[@name='foo']/folder[@name='bar']", 'drupal_get_query_array() should only explode parameters on the first equals sign.');
++  }
++
++}
+diff --git a/modules/simpletest/tests/database_test.test b/modules/simpletest/tests/database_test.test
+index aa390bd..dba04b2 100644
+--- a/modules/simpletest/tests/database_test.test
++++ b/modules/simpletest/tests/database_test.test
+@@ -2622,6 +2622,52 @@ class DatabaseTaggingTestCase extends DatabaseTestCase {
+   }
+ 
+   /**
++   * Confirm that an extended query has a "tag" added to it.
++   */
++  function testExtenderHasTag() {
++    $query = db_select('test')
++      ->extend('SelectQueryExtender');
++    $query->addField('test', 'name');
++    $query->addField('test', 'age', 'age');
++
++    $query->addTag('test');
++
++    $this->assertTrue($query->hasTag('test'), 'hasTag() returned true.');
++    $this->assertFalse($query->hasTag('other'), 'hasTag() returned false.');
++  }
++
++  /**
++   * Test extended query tagging "has all of these tags" functionality.
++   */
++  function testExtenderHasAllTags() {
++    $query = db_select('test')
++      ->extend('SelectQueryExtender');
++    $query->addField('test', 'name');
++    $query->addField('test', 'age', 'age');
++
++    $query->addTag('test');
++    $query->addTag('other');
++
++    $this->assertTrue($query->hasAllTags('test', 'other'), 'hasAllTags() returned true.');
++    $this->assertFalse($query->hasAllTags('test', 'stuff'), 'hasAllTags() returned false.');
++  }
++
++  /**
++   * Test extended query tagging "has at least one of these tags" functionality.
++   */
++  function testExtenderHasAnyTag() {
++    $query = db_select('test')
++      ->extend('SelectQueryExtender');
++    $query->addField('test', 'name');
++    $query->addField('test', 'age', 'age');
++
++    $query->addTag('test');
++
++    $this->assertTrue($query->hasAnyTag('test', 'other'), 'hasAnyTag() returned true.');
++    $this->assertFalse($query->hasAnyTag('other', 'stuff'), 'hasAnyTag() returned false.');
++  }
++
++  /**
+    * Test that we can attach meta data to a query object.
+    *
+    * This is how we pass additional context to alter hooks.
+@@ -3091,6 +3137,15 @@ class DatabaseTemporaryQueryTestCase extends DrupalWebTestCase {
+ 
+     $this->assertEqual($this->countTableRows($table_name_system), $this->countTableRows("system"), 'A temporary table was created successfully in this request.');
+     $this->assertEqual($this->countTableRows($table_name_users), $this->countTableRows("users"), 'A second temporary table was created successfully in this request.');
++
++    // Check that leading whitespace and comments do not cause problems
++    // in the modified query.
++    $sql = "
++      -- Let's select some rows into a temporary table
++      SELECT name FROM {test}
++    ";
++    $table_name_test = db_query_temporary($sql, array());
++    $this->assertEqual($this->countTableRows($table_name_test), $this->countTableRows('test'), 'Leading white space and comments do not interfere with temporary table creation.');
+   }
+ }
+ 
+diff --git a/modules/simpletest/tests/entity_crud.test b/modules/simpletest/tests/entity_crud.test
+new file mode 100644
+index 0000000..be15977
+--- /dev/null
++++ b/modules/simpletest/tests/entity_crud.test
+@@ -0,0 +1,49 @@
++<?php
++
++/**
++ * @file
++ * Tests for the Entity CRUD API.
++ */
++
++/**
++ * Tests the entity_load() function.
++ */
++class EntityLoadTestCase extends DrupalWebTestCase {
++  protected $profile = 'testing';
++
++  public static function getInfo() {
++    return array(
++      'name' => 'Entity loading',
++      'description' => 'Tests the entity_load() function.',
++      'group' => 'Entity API',
++    );
++  }
++
++  /**
++   * Tests the functionality for loading entities matching certain conditions.
++   */
++  public function testEntityLoadConditions() {
++    // Create a few nodes. One of them is given an edge-case title of "Array",
++    // because loading entities by an array of conditions is subject to PHP
++    // array-to-string conversion issues and we want to test those.
++    $node_1 = $this->drupalCreateNode(array('title' => 'Array'));
++    $node_2 = $this->drupalCreateNode(array('title' => 'Node 2'));
++    $node_3 = $this->drupalCreateNode(array('title' => 'Node 3'));
++
++    // Load all entities so that they are statically cached.
++    $all_nodes = entity_load('node', FALSE);
++
++    // Check that the first node can be loaded by title.
++    $nodes_loaded = entity_load('node', FALSE, array('title' => 'Array'));
++    $this->assertEqual(array_keys($nodes_loaded), array($node_1->nid));
++
++    // Check that the second and third nodes can be loaded by title using an
++    // array of conditions, and that the first node is not loaded from the
++    // cache along with them.
++    $nodes_loaded = entity_load('node', FALSE, array('title' => array('Node 2', 'Node 3')));
++    ksort($nodes_loaded);
++    $this->assertEqual(array_keys($nodes_loaded), array($node_2->nid, $node_3->nid));
++    $this->assertIdentical($nodes_loaded[$node_2->nid], $all_nodes[$node_2->nid], 'Loaded node 2 is identical to cached node.');
++    $this->assertIdentical($nodes_loaded[$node_3->nid], $all_nodes[$node_3->nid], 'Loaded node 3 is identical to cached node.');
++  }
++}
+diff --git a/modules/simpletest/tests/system_test.module b/modules/simpletest/tests/system_test.module
+index 8cb0e83..2eda351 100644
+--- a/modules/simpletest/tests/system_test.module
++++ b/modules/simpletest/tests/system_test.module
+@@ -114,8 +114,23 @@ function system_test_sleep($seconds) {
+ }
+ 
+ function system_test_basic_auth_page() {
+-  $output = t('$_SERVER[\'PHP_AUTH_USER\'] is @username.', array('@username' => $_SERVER['PHP_AUTH_USER']));
+-  $output .= t('$_SERVER[\'PHP_AUTH_PW\'] is @password.', array('@password' => $_SERVER['PHP_AUTH_PW']));
++  // The Authorization HTTP header is forwarded via Drupal's .htaccess file even
++  // for PHP CGI SAPIs.
++  if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
++    $authorization_header = $_SERVER['HTTP_AUTHORIZATION'];
++  }
++  // If using CGI on Apache with mod_rewrite, the forwarded HTTP header appears
++  // in the redirected HTTP headers. See
++  // https://github.com/symfony/symfony/blob/master/src/Symfony/Component/HttpFoundation/ServerBag.php#L61
++  elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
++    $authorization_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
++  }
++  // Resemble PHP_AUTH_USER and PHP_AUTH_PW for a Basic authentication from
++  // the HTTP_AUTHORIZATION header. See
++  // http://www.php.net/manual/features.http-auth.php
++  list($user, $pw) = explode(':', base64_decode(substr($authorization_header, 6)));
++  $output = t('Username is @username.', array('@username' => $user));
++  $output .= t('Password is @password.', array('@password' => $pw));
+   return $output;
+ }
+ 
+diff --git a/modules/system/form.api.php b/modules/system/form.api.php
+new file mode 100644
+index 0000000..3cfec86
+--- /dev/null
++++ b/modules/system/form.api.php
+@@ -0,0 +1,126 @@
++<?php
++
++/**
++ * @file
++ * Callbacks provided by the form system.
++ */
++
++/**
++ * @addtogroup callbacks
++ * @{
++ */
++
++/**
++ * Perform a single batch operation.
++ *
++ * Callback for batch_set().
++ *
++ * @param $MULTIPLE_PARAMS
++ *   Additional parameters specific to the batch. These are specified in the
++ *   array passed to batch_set().
++ * @param $context
++ *   The batch context array, passed by reference. This contains the following
++ *   properties:
++ *   - 'finished': A float number between 0 and 1 informing the processing
++ *     engine of the completion level for the operation. 1 (or no value
++ *     explicitly set) means the operation is finished: the operation will not
++ *     be called again, and execution passes to the next operation or the
++ *     callback_batch_finished() implementation. Any other value causes this
++ *     operation to be called again; however it should be noted that the value
++ *     set here does not persist between executions of this callback: each time
++ *     it is set to 1 by default by the batch system.
++ *   - 'sandbox': This may be used by operations to persist data between
++ *     successive calls to the current operation. Any values set in
++ *     $context['sandbox'] will be there the next time this function is called
++ *     for the current operation. For example, an operation may wish to store a
++ *     pointer in a file or an offset for a large query. The 'sandbox' array key
++ *     is not initially set when this callback is first called, which makes it
++ *     useful for determining whether it is the first call of the callback or
++ *     not:
++ *     @code
++ *       if (empty($context['sandbox'])) {
++ *         // Perform set-up steps here.
++ *       }
++ *     @endcode
++ *     The values in the sandbox are stored and updated in the database between
++ *     http requests until the batch finishes processing. This avoids problems
++ *     if the user navigates away from the page before the batch finishes.
++ *   - 'message': A text message displayed in the progress page.
++ *   - 'results': The array of results gathered so far by the batch processing.
++ *     This array is highly useful for passing data between operations. After
++ *     all operations have finished, this is passed to callback_batch_finished()
++ *     where results may be referenced to display information to the end-user,
++ *     such as how many total items were processed.
++ */
++function callback_batch_operation($MULTIPLE_PARAMS, &$context) {
++  if (!isset($context['sandbox']['progress'])) {
++    $context['sandbox']['progress'] = 0;
++    $context['sandbox']['current_node'] = 0;
++    $context['sandbox']['max'] = db_query('SELECT COUNT(DISTINCT nid) FROM {node}')->fetchField();
++  }
++
++  // For this example, we decide that we can safely process
++  // 5 nodes at a time without a timeout.
++  $limit = 5;
++
++  // With each pass through the callback, retrieve the next group of nids.
++  $result = db_query_range("SELECT nid FROM {node} WHERE nid > %d ORDER BY nid ASC", $context['sandbox']['current_node'], 0, $limit);
++  while ($row = db_fetch_array($result)) {
++
++    // Here we actually perform our processing on the current node.
++    $node = node_load($row['nid'], NULL, TRUE);
++    $node->value1 = $options1;
++    $node->value2 = $options2;
++    node_save($node);
++
++    // Store some result for post-processing in the finished callback.
++    $context['results'][] = check_plain($node->title);
++
++    // Update our progress information.
++    $context['sandbox']['progress']++;
++    $context['sandbox']['current_node'] = $node->nid;
++    $context['message'] = t('Now processing %node', array('%node' => $node->title));
++  }
++
++  // Inform the batch engine that we are not finished,
++  // and provide an estimation of the completion level we reached.
++  if ($context['sandbox']['progress'] != $context['sandbox']['max']) {
++    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
++  }
++}
++
++/**
++ * Complete a batch process.
++ *
++ * Callback for batch_set().
++ *
++ * This callback may be specified in a batch to perform clean-up operations, or
++ * to analyze the results of the batch operations.
++ *
++ * @param $success
++ *   A boolean indicating whether the batch has completed successfully.
++ * @param $results
++ *   The value set in $context['results'] by callback_batch_operation().
++ * @param $operations
++ *   If $success is FALSE, contains the operations that remained unprocessed.
++ */
++function callback_batch_finished($success, $results, $operations) {
++  if ($success) {
++    // Here we do something meaningful with the results.
++    $message = t("!count items were processed.", array(
++      '!count' => count($results),
++      ));
++    $message .= theme('item_list', array('items' => $results));
++    drupal_set_message($message);
++  }
++  else {
++    // An error occurred.
++    // $operations contains the operations that remained unprocessed.
++    $error_operation = reset($operations);
++    $message = t('An error occurred while processing %error_operation with arguments: @arguments', array(
++      '%error_operation' => $error_operation[0],
++      '@arguments' => print_r($error_operation[1], TRUE)
++    ));
++    drupal_set_message($message, 'error');
++  }
++}
+diff --git a/modules/system/image.gd.inc b/modules/system/image.gd.inc
+index 91c0b05..d9035e4 100644
+--- a/modules/system/image.gd.inc
++++ b/modules/system/image.gd.inc
+@@ -56,13 +56,8 @@ function image_gd_settings_validate($form, &$form_state) {
+  *   A boolean indicating if the GD toolkit is available on this machine.
+  */
+ function image_gd_check_settings() {
+-  if ($check = get_extension_funcs('gd')) {
+-    if (in_array('imagegd2', $check)) {
+-      // GD2 support is available.
+-      return TRUE;
+-    }
+-  }
+-  return FALSE;
++  // GD2 support is available.
++  return function_exists('imagegd2');
+ }
+ 
+ /**
+@@ -346,7 +341,7 @@ function image_gd_create_tmp(stdClass $image, $width, $height) {
+  */
+ function image_gd_get_info(stdClass $image) {
+   $details = FALSE;
+-  $data = getimagesize($image->source);
++  $data = @getimagesize($image->source);
+ 
+   if (isset($data) && is_array($data)) {
+     $extensions = array('1' => 'gif', '2' => 'jpg', '3' => 'png');
+diff --git a/modules/system/system.admin.inc b/modules/system/system.admin.inc
+index 465fd9f..c1e81f0 100644
+--- a/modules/system/system.admin.inc
++++ b/modules/system/system.admin.inc
+@@ -995,22 +995,28 @@ function _system_modules_build_row($info, $extra) {
+   $status_short = '';
+   $status_long = '';
+ 
++  // Initialize empty arrays of long and short reasons explaining why the
++  // module is incompatible.
++  // Add each reason as a separate element in both the arrays.
++  $reasons_short = array();
++  $reasons_long = array();
++
+   // Check the core compatibility.
+   if (!isset($info['core']) || $info['core'] != DRUPAL_CORE_COMPATIBILITY) {
+     $compatible = FALSE;
+-    $status_short .= t('Incompatible with this version of Drupal core.');
+-    $status_long .= t('This version is not compatible with Drupal !core_version and should be replaced.', array('!core_version' => DRUPAL_CORE_COMPATIBILITY));
++    $reasons_short[] = t('Incompatible with this version of Drupal core.');
++    $reasons_long[] = t('This version is not compatible with Drupal !core_version and should be replaced.', array('!core_version' => DRUPAL_CORE_COMPATIBILITY));
+   }
+ 
+   // Ensure this module is compatible with the currently installed version of PHP.
+   if (version_compare(phpversion(), $info['php']) < 0) {
+     $compatible = FALSE;
+-    $status_short .= t('Incompatible with this version of PHP');
++    $reasons_short[] = t('Incompatible with this version of PHP');
+     $php_required = $info['php'];
+     if (substr_count($info['php'], '.') < 2) {
+       $php_required .= '.*';
+     }
+-    $status_long .= t('This module requires PHP version @php_required and is incompatible with PHP version !php_version.', array('@php_required' => $php_required, '!php_version' => phpversion()));
++    $reasons_long[] = t('This module requires PHP version @php_required and is incompatible with PHP version !php_version.', array('@php_required' => $php_required, '!php_version' => phpversion()));
+   }
+ 
+   // If this module is compatible, present a checkbox indicating
+@@ -1026,6 +1032,8 @@ function _system_modules_build_row($info, $extra) {
+     }
+   }
+   else {
++    $status_short = implode(' ', $reasons_short);
++    $status_long = implode(' ', $reasons_long);
+     $form['enable'] = array(
+       '#markup' =>  theme('image', array('path' => 'misc/watchdog-error.png', 'alt' => $status_short, 'title' => $status_short)),
+     );
+diff --git a/modules/system/system.api.php b/modules/system/system.api.php
+index f54078b..fbcb173 100644
+--- a/modules/system/system.api.php
++++ b/modules/system/system.api.php
+@@ -875,7 +875,7 @@ function hook_css_alter(&$css) {
+  *
+  * @see ajax_render()
+  */
+-function hook_ajax_render_alter($commands) {
++function hook_ajax_render_alter(&$commands) {
+   // Inject any new status messages into the content area.
+   $commands[] = ajax_command_prepend('#block-system-main .content', theme('status_messages'));
+ }
+diff --git a/modules/system/system.module b/modules/system/system.module
+index eada9ff..d4f3bc4 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -3422,30 +3422,32 @@ function system_image_toolkits() {
+ /**
+  * Attempts to get a file using drupal_http_request and to store it locally.
+  *
+- * @param $url
++ * @param string $url
+  *   The URL of the file to grab.
+- *
+- * @param $destination
++ * @param string $destination
+  *   Stream wrapper URI specifying where the file should be placed. If a
+  *   directory path is provided, the file is saved into that directory under
+  *   its original name. If the path contains a filename as well, that one will
+  *   be used instead.
+  *   If this value is omitted, the site's default files scheme will be used,
+  *   usually "public://".
+- *
+- * @param $managed boolean
++ * @param bool $managed
+  *   If this is set to TRUE, the file API hooks will be invoked and the file is
+  *   registered in the database.
+- *
+- * @param $replace boolean
++ * @param int $replace
+  *   Replace behavior when the destination file already exists:
+  *   - FILE_EXISTS_REPLACE: Replace the existing file.
+  *   - FILE_EXISTS_RENAME: Append _{incrementing number} until the filename is
+  *     unique.
+  *   - FILE_EXISTS_ERROR: Do nothing and return FALSE.
+  *
+- * @return
+- *   On success the location the file was saved to, FALSE on failure.
++ * @return mixed
++ *   One of these possibilities:
++ *   - If it succeeds and $managed is FALSE, the location where the file was
++ *     saved.
++ *   - If it succeeds and $managed is TRUE, a \Drupal\file\FileInterface
++ *     object which describes the file.
++ *   - If it fails, FALSE.
+  */
+ function system_retrieve_file($url, $destination = NULL, $managed = FALSE, $replace = FILE_EXISTS_RENAME) {
+   $parsed_url = parse_url($url);
+diff --git a/modules/system/system.test b/modules/system/system.test
+index f4fb047..cae5cc7 100644
+--- a/modules/system/system.test
++++ b/modules/system/system.test
+@@ -867,6 +867,44 @@ class CronRunTestCase extends DrupalWebTestCase {
+   }
+ }
+ 
++/**
++ * Test execution of the cron queue.
++ */
++class CronQueueTestCase extends DrupalWebTestCase {
++  /**
++   * Implement getInfo().
++   */
++  public static function getInfo() {
++    return array(
++      'name' => 'Cron queue functionality',
++      'description' => 'Tests the cron queue runner.',
++      'group' => 'System'
++    );
++  }
++
++  function setUp() {
++    parent::setUp(array('common_test', 'common_test_cron_helper'));
++  }
++
++  /**
++   * Tests that exceptions thrown by workers are handled properly.
++   */
++  function testExceptions() {
++    $queue = DrupalQueue::get('cron_queue_test_exception');
++
++    // Enqueue an item for processing.
++    $queue->createItem(array($this->randomName() => $this->randomName()));
++
++    // Run cron; the worker for this queue should throw an exception and handle
++    // it.
++    $this->cronRun();
++
++    // The item should be left in the queue.
++    $this->assertEqual($queue->numberOfItems(), 1, 'Failing item still in the queue after throwing an exception.');
++  }
++
++}
++
+ class AdminMetaTagTestCase extends DrupalWebTestCase {
+   /**
+    * Implement getInfo().
+diff --git a/modules/system/tests/cron_queue_test.info b/modules/system/tests/cron_queue_test.info
+new file mode 100644
+index 0000000..718cb10
+--- /dev/null
++++ b/modules/system/tests/cron_queue_test.info
+@@ -0,0 +1,6 @@
++name = Cron Queue test
++description = 'Support module for the cron queue runner.'
++package = Testing
++version = VERSION
++core = 7.x
++hidden = TRUE
+diff --git a/modules/system/tests/cron_queue_test.module b/modules/system/tests/cron_queue_test.module
+new file mode 100644
+index 0000000..e95c6b6
+--- /dev/null
++++ b/modules/system/tests/cron_queue_test.module
+@@ -0,0 +1,15 @@
++<?php
++
++/**
++ * Implements hook_cron_queue_info().
++ */
++function cron_queue_test_cron_queue_info() {
++  $queues['cron_queue_test_exception'] = array(
++    'worker callback' => 'cron_queue_test_exception',
++  );
++  return $queues;
++}
++
++function cron_queue_test_exception($item) {
++  throw new Exception('That is not supposed to happen.');
++}
+diff --git a/modules/taxonomy/taxonomy.install b/modules/taxonomy/taxonomy.install
+index e3603e1..ebd0084 100644
+--- a/modules/taxonomy/taxonomy.install
++++ b/modules/taxonomy/taxonomy.install
+@@ -903,13 +903,34 @@ function taxonomy_update_7010() {
+ /**
+  * Drop unpublished nodes from the index.
+  */
+-function taxonomy_update_7011() {
+-  $nids = db_query('SELECT nid from {node} WHERE status = :status', array(':status' => NODE_NOT_PUBLISHED))->fetchCol();
++function taxonomy_update_7011(&$sandbox) {
++  // Initialize information needed by the batch update system.
++  if (!isset($sandbox['progress'])) {
++    $sandbox['progress'] = 0;
++    $sandbox['max'] = db_query('SELECT COUNT(DISTINCT n.nid) FROM {node} n INNER JOIN {taxonomy_index} t ON n.nid = t.nid WHERE n.status = :status', array(':status' => NODE_NOT_PUBLISHED))->fetchField();
++    // If there's no data, don't bother with the extra work.
++    if (empty($sandbox['max'])) {
++      return;
++    }
++  }
++
++  // Process records in groups of 5000.
++  $limit = 5000;
++  $nids = db_query_range('SELECT DISTINCT n.nid FROM {node} n INNER JOIN {taxonomy_index} t ON n.nid = t.nid WHERE n.status = :status', 0, $limit, array(':status' => NODE_NOT_PUBLISHED))->fetchCol();
+   if (!empty($nids)) {
+     db_delete('taxonomy_index')
+       ->condition('nid', $nids)
+       ->execute();
+   }
++
++  // Update our progress information for the batch update.
++  $sandbox['progress'] += $limit;
++
++  // Indicate our current progress to the batch update system, if the update is
++  // not yet complete.
++  if ($sandbox['progress'] < $sandbox['max']) {
++    $sandbox['#finished'] = $sandbox['progress'] / $sandbox['max'];
++  }
+ }
+ 
+ /**
+diff --git a/modules/taxonomy/taxonomy.module b/modules/taxonomy/taxonomy.module
+index 7ad28e9..4191146 100644
+--- a/modules/taxonomy/taxonomy.module
++++ b/modules/taxonomy/taxonomy.module
+@@ -457,7 +457,12 @@ function taxonomy_vocabulary_save($vocabulary) {
+ }
+ 
+ /**
+- * Delete a vocabulary.
++ * Deletes a vocabulary.
++ *
++ * This will update all Taxonomy fields so that they don't reference the
++ * deleted vocabulary. It also will delete fields that have no remaining
++ * vocabulary references. All taxonomy terms of the deleted vocabulary
++ * will be deleted as well.
+  *
+  * @param $vid
+  *   A vocabulary ID.
+@@ -748,7 +753,7 @@ function taxonomy_term_delete($tid) {
+  * @param term
+  *   A taxonomy term object.
+  * @return
+- *   A $page element suitable for use by drupal_page_render().
++ *   A $page element suitable for use by drupal_render().
+  */
+ function taxonomy_term_show($term) {
+   return taxonomy_term_view_multiple(array($term->tid => $term), 'full');
+diff --git a/modules/taxonomy/taxonomy.test b/modules/taxonomy/taxonomy.test
+index 665f9ae..fdf354b 100644
+--- a/modules/taxonomy/taxonomy.test
++++ b/modules/taxonomy/taxonomy.test
+@@ -690,15 +690,20 @@ class TaxonomyTermTestCase extends TaxonomyWebTestCase {
+       $term_objects[$key] = reset($term_objects[$key]);
+     }
+ 
++    // Test editing the node.
++    $node = $this->drupalGetNodeByTitle($edit["title"]);
++    $this->drupalPost('node/' . $node->nid . '/edit', $edit, t('Save'));
++    foreach ($terms as $term) {
++      $this->assertText($term, 'The term was retained after edit and still appears on the node page.');
++    }
++
+     // Delete term 1.
+     $this->drupalPost('taxonomy/term/' . $term_objects['term1']->tid . '/edit', array(), t('Delete'));
+     $this->drupalPost(NULL, NULL, t('Delete'));
+     $term_names = array($term_objects['term2']->name, $term_objects['term3']->name);
+ 
+-    // Get the node.
+-    $node = $this->drupalGetNodeByTitle($edit["title"]);
++    // Get the node and verify that the terms that should be there still are.
+     $this->drupalGet('node/' . $node->nid);
+-
+     foreach ($term_names as $term_name) {
+       $this->assertText($term_name, format_string('The term %name appears on the node page after one term %deleted was deleted', array('%name' => $term_name, '%deleted' => $term_objects['term1']->name)));
+     }
+diff --git a/modules/tracker/tracker.pages.inc b/modules/tracker/tracker.pages.inc
+index baa9986..fa16b65 100644
+--- a/modules/tracker/tracker.pages.inc
++++ b/modules/tracker/tracker.pages.inc
+@@ -120,7 +120,6 @@ function tracker_page($account = NULL, $set_title = FALSE) {
+   );
+   $page['pager'] = array(
+     '#theme' => 'pager',
+-    '#quantity' => 25,
+     '#weight' => 10,
+   );
+   $page['#sorted'] = TRUE;
+diff --git a/modules/update/update.module b/modules/update/update.module
+index d5728be..d1f0d85 100644
+--- a/modules/update/update.module
++++ b/modules/update/update.module
+@@ -71,7 +71,7 @@ define('UPDATE_MAX_FETCH_ATTEMPTS', 2);
+ /**
+  * Maximum number of seconds to try fetching available update data at a time.
+  */
+-define('UPDATE_MAX_FETCH_TIME', 5);
++define('UPDATE_MAX_FETCH_TIME', 30);
+ 
+ /**
+  * Implements hook_help().
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 9668d3b..b239799 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -737,8 +737,9 @@ function user_password($length = 10) {
+  *   An array whose keys are the role IDs of interest, such as $user->roles.
+  *
+  * @return
+- *   An array indexed by role ID. Each value is an array whose keys are the
+- *   permission strings for the given role ID.
++ *   If $roles is a non-empty array, an array indexed by role ID is returned.
++ *   Each value is an array whose keys are the permission strings for the given
++ *   role ID. If $roles is empty nothing is returned.
+  */
+ function user_role_permissions($roles = array()) {
+   $cache = &drupal_static(__FUNCTION__, array());
