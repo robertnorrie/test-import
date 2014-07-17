@@ -1,0 +1,136 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index a858e06..2b8d4af 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 6.32, 2014-07-16
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
++
+ Drupal 6.31, 2014-04-16
+ ----------------------
+ - Fixed security issues (information disclosure). See SA-CORE-2014-002.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index d6b407c..c8d6739 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -364,7 +364,14 @@ function drupal_unset_globals() {
+  *  TRUE if only containing valid characters, or FALSE otherwise.
+  */
+ function drupal_valid_http_host($host) {
+-  return preg_match('/^\[?(?:[a-z0-9-:\]_]+\.?)+$/', $host);
++  // Limit the length of the host name to 1000 bytes to prevent DoS attacks with
++  // long host names.
++  return strlen($host) <= 1000
++    // Limit the number of subdomains and port separators to prevent DoS attacks
++    // in conf_path().
++    && substr_count($host, '.') <= 100
++    && substr_count($host, ':') <= 100
++    && preg_match('/^\[?(?:[a-zA-Z0-9-:\]_]+\.?)+$/', $host);
+ }
+ 
+ /**
+diff --git a/includes/file.inc b/includes/file.inc
+index d0e24b2..e606ba2 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -974,17 +974,68 @@ function file_download() {
+   }
+ 
+   if (file_exists(file_create_path($filepath))) {
+-    $headers = module_invoke_all('file_download', $filepath);
+-    if (in_array(-1, $headers)) {
+-      return drupal_access_denied();
+-    }
++    $headers = file_download_headers($filepath);
+     if (count($headers)) {
+       file_transfer($filepath, $headers);
+     }
++    else {
++      return drupal_access_denied();
++    }
+   }
+   return drupal_not_found();
+ }
+ 
++/**
++ * Retrieves headers for a private file download.
++ *
++ * Calls all module implementations of hook_file_download() to retrieve headers
++ * for files by the module that originally provided the file. The presence of
++ * returned headers indicates the current user has access to the file.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   If access is allowed, headers for the file, suitable for passing to
++ *   file_transfer(). If access is not allowed, an empty array will be returned.
++ *
++ * @see file_transfer()
++ * @see file_download_access()
++ * @see hook_file_downlaod()
++ */
++function file_download_headers($filepath) {
++  $headers = module_invoke_all('file_download', $filepath);
++  if (in_array(-1, $headers)) {
++    // Throw away the headers received so far.
++    $headers = array();
++  }
++  return $headers;
++}
++
++/**
++ * Checks that the current user has access to a particular file.
++ *
++ * The return value of this function hinges on the return value from
++ * file_download_headers(), which is the function responsible for collecting
++ * access information through hook_file_download().
++ *
++ * If immediately transferring the file to the browser and the headers will
++ * need to be retrieved, the return value of file_download_headers() should be
++ * used to determine access directly, so that access checks will not be run
++ * twice.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   Boolean TRUE if access is allowed. FALSE if access is not allowed.
++ *
++ * @see file_download_headers()
++ * @see hook_file_download()
++ */
++function file_download_access($filepath) {
++  return count(file_download_headers($filepath)) > 0;
++}
+ 
+ /**
+  * Finds all files that match a given mask in a given directory.
+diff --git a/includes/form.inc b/includes/form.inc
+index 8ac40c9..e9ac8e4 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -1484,7 +1484,7 @@ function form_select_options($element, $choices = NULL) {
+   $options = '';
+   foreach ($choices as $key => $choice) {
+     if (is_array($choice)) {
+-      $options .= '<optgroup label="'. $key .'">';
++      $options .= '<optgroup label="'. check_plain($key) .'">';
+       $options .= form_select_options($element, $choice);
+       $options .= '</optgroup>';
+     }
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 221589f..8312b1d 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.31');
++define('VERSION', '6.32');
+ 
+ /**
+  * Core API compatibility.
