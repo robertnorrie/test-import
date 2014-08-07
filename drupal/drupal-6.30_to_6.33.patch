@@ -1,0 +1,380 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index b36af69..814adba 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,16 @@
+ 
++Drupal 6.33, 2014-08-06
++----------------------
++- Fixed security issues (denial of service). See SA-CORE-2014-004.
++
++Drupal 6.32, 2014-07-16
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
++
++Drupal 6.31, 2014-04-16
++----------------------
++- Fixed security issues (information disclosure). See SA-CORE-2014-002.
++
+ Drupal 6.30, 2014-01-15
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities), see SA-CORE-2014-001.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index d6b407c..c8d6739 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -364,7 +364,14 @@ function drupal_unset_globals() {
+  *  TRUE if only containing valid characters, or FALSE otherwise.
+  */
+ function drupal_valid_http_host($host) {
+-  return preg_match('/^\[?(?:[a-z0-9-:\]_]+\.?)+$/', $host);
++  // Limit the length of the host name to 1000 bytes to prevent DoS attacks with
++  // long host names.
++  return strlen($host) <= 1000
++    // Limit the number of subdomains and port separators to prevent DoS attacks
++    // in conf_path().
++    && substr_count($host, '.') <= 100
++    && substr_count($host, ':') <= 100
++    && preg_match('/^\[?(?:[a-zA-Z0-9-:\]_]+\.?)+$/', $host);
+ }
+ 
+ /**
+diff --git a/includes/file.inc b/includes/file.inc
+index d0e24b2..e606ba2 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -974,17 +974,68 @@ function file_download() {
+   }
+ 
+   if (file_exists(file_create_path($filepath))) {
+-    $headers = module_invoke_all('file_download', $filepath);
+-    if (in_array(-1, $headers)) {
+-      return drupal_access_denied();
+-    }
++    $headers = file_download_headers($filepath);
+     if (count($headers)) {
+       file_transfer($filepath, $headers);
+     }
++    else {
++      return drupal_access_denied();
++    }
+   }
+   return drupal_not_found();
+ }
+ 
++/**
++ * Retrieves headers for a private file download.
++ *
++ * Calls all module implementations of hook_file_download() to retrieve headers
++ * for files by the module that originally provided the file. The presence of
++ * returned headers indicates the current user has access to the file.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   If access is allowed, headers for the file, suitable for passing to
++ *   file_transfer(). If access is not allowed, an empty array will be returned.
++ *
++ * @see file_transfer()
++ * @see file_download_access()
++ * @see hook_file_downlaod()
++ */
++function file_download_headers($filepath) {
++  $headers = module_invoke_all('file_download', $filepath);
++  if (in_array(-1, $headers)) {
++    // Throw away the headers received so far.
++    $headers = array();
++  }
++  return $headers;
++}
++
++/**
++ * Checks that the current user has access to a particular file.
++ *
++ * The return value of this function hinges on the return value from
++ * file_download_headers(), which is the function responsible for collecting
++ * access information through hook_file_download().
++ *
++ * If immediately transferring the file to the browser and the headers will
++ * need to be retrieved, the return value of file_download_headers() should be
++ * used to determine access directly, so that access checks will not be run
++ * twice.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   Boolean TRUE if access is allowed. FALSE if access is not allowed.
++ *
++ * @see file_download_headers()
++ * @see hook_file_download()
++ */
++function file_download_access($filepath) {
++  return count(file_download_headers($filepath)) > 0;
++}
+ 
+ /**
+  * Finds all files that match a given mask in a given directory.
+diff --git a/includes/form.inc b/includes/form.inc
+index 466410e..e9ac8e4 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -226,10 +226,25 @@ function form_set_cache($form_build_id, $form, $form_state) {
+   if ($user->uid) {
+     $form['#cache_token'] = drupal_get_token();
+   }
++  elseif (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && $_SERVER['REQUEST_METHOD'] == 'GET' && page_get_cache(TRUE)) {
++    $form['#immutable'] = TRUE;
++  }
++  $form_build_id_old = $form_build_id;
++  $form_build_id = form_build_id_map($form_build_id_old);
+   cache_set('form_'. $form_build_id, $form, 'cache_form', time() + $expire);
+   if (!empty($form_state['storage'])) {
+     cache_set('storage_'. $form_build_id, $form_state['storage'], 'cache_form', time() + $expire);
+   }
++
++  // If form_set_cache is called in the context of an ahah handler inform the
++  // client about the changed form build_id via the X-Drupal-Build-Id HTTP
++  // header.
++  if (!empty($_SERVER['HTTP_X_DRUPAL_ACCEPT_BUILD_ID']) &&
++    !empty($_POST['form_build_id']) &&
++    $_POST['form_build_id'] == $form_build_id_old &&
++    $form_build_id_old != $form_build_id) {
++    drupal_set_header('X-Drupal-Build-Id: ' . $form_build_id);
++  }
+ }
+ 
+ /**
+@@ -243,12 +258,36 @@ function form_get_cache($form_build_id, &$form_state) {
+       if ($cached = cache_get('storage_'. $form_build_id, 'cache_form')) {
+         $form_state['storage'] = $cached->data;
+       }
++
++      // Generate a new #build_id if the cached form was rendered on a cacheable
++      // page.
++      if (!empty($form['#immutable'])) {
++        $form['#build_id'] = 'form-' . drupal_random_key();
++        $form['form_build_id']['#value'] = $form['#build_id'];
++        $form['form_build_id']['#id'] = $form['#build_id'];
++        unset($form['#immutable']);
++
++        form_build_id_map($form_build_id, $form['#build_id']);
++      }
+       return $form;
+     }
+   }
+ }
+ 
+ /**
++ * Maintain a map of immutable form_build_ids to cloned form.
++ */
++function form_build_id_map($form_build_id, $new_build_id = NULL) {
++  static $build_id_map = array();
++
++  if (isset($new_build_id) && isset($form_build_id)) {
++    $build_id_map[$form_build_id] = $new_build_id;
++  }
++
++  return isset($build_id_map[$form_build_id]) ? $build_id_map[$form_build_id] : $form_build_id;
++}
++
++/**
+  * Retrieves, populates, and processes a form.
+  *
+  * This function allows you to supply values for form elements and submit a
+@@ -1445,7 +1484,7 @@ function form_select_options($element, $choices = NULL) {
+   $options = '';
+   foreach ($choices as $key => $choice) {
+     if (is_array($choice)) {
+-      $options .= '<optgroup label="'. $key .'">';
++      $options .= '<optgroup label="'. check_plain($key) .'">';
+       $options .= form_select_options($element, $choice);
+       $options .= '</optgroup>';
+     }
+@@ -1798,6 +1837,8 @@ function expand_radios($element) {
+  *   drupal_add_js.
+  */
+ function form_expand_ahah($element) {
++  global $user;
++
+   static $js_added = array();
+   // Add a reasonable default event handler if none specified.
+   if (isset($element['#ahah']['path']) && !isset($element['#ahah']['event'])) {
+@@ -1844,6 +1885,11 @@ function form_expand_ahah($element) {
+       'button'   => isset($element['#executes_submit_callback']) ? array($element['#name'] => $element['#value']) : FALSE,
+     );
+ 
++    // If page caching is active, indicate that this form is immutable.
++    if (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && !$user->uid && $_SERVER['REQUEST_METHOD'] == 'GET' && page_get_cache(TRUE)) {
++      $ahah_binding['immutable'] = TRUE;
++    }
++
+     // Convert a simple #ahah[progress] type string into an array.
+     if (is_string($ahah_binding['progress'])) {
+       $ahah_binding['progress'] = array('type' => $ahah_binding['progress']);
+diff --git a/includes/xmlrpc.inc b/includes/xmlrpc.inc
+index 13ebf09..9236d88 100644
+--- a/includes/xmlrpc.inc
++++ b/includes/xmlrpc.inc
+@@ -163,7 +163,38 @@ function xmlrpc_message_parse(&$xmlrpc_message) {
+   xml_set_element_handler($xmlrpc_message->_parser, 'xmlrpc_message_tag_open', 'xmlrpc_message_tag_close');
+   xml_set_character_data_handler($xmlrpc_message->_parser, 'xmlrpc_message_cdata');
+   xmlrpc_message_set($xmlrpc_message);
+-  if (!xml_parse($xmlrpc_message->_parser, $xmlrpc_message->message)) {
++
++  // Strip XML declaration.
++  $header = preg_replace('/<\?xml.*?\?'.'>/s', '', substr($xmlrpc_message->message, 0, 100), 1);
++  $xml = trim(substr_replace($xmlrpc_message->message, $header, 0, 100));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Strip DTD.
++  $header = preg_replace('/^<!DOCTYPE[^>]*+>/i', '', substr($xml, 0, 200), 1);
++  $xml = trim(substr_replace($xml, $header, 0, 200));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Confirm the XML now starts with a valid root tag. A root tag can end in [> \t\r\n]
++  $root_tag = substr($xml, 0, strcspn(substr($xml, 0, 20), "> \t\r\n"));
++  // Reject a second DTD.
++  if (strtoupper($root_tag) == '<!DOCTYPE') {
++    return FALSE;
++  }
++  if (!in_array($root_tag, array('<methodCall', '<methodResponse', '<fault'))) {
++    return FALSE;
++  }
++  // Skip parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('xmlrpc_message_maximum_tag_count', 30000)) {
++    return FALSE;
++  }
++
++  if (!xml_parse($xmlrpc_message->_parser, $xml)) {
+     return FALSE;
+   }
+   xml_parser_free($xmlrpc_message->_parser);
+diff --git a/misc/ahah.js b/misc/ahah.js
+index 118c4de..e2a8659 100644
+--- a/misc/ahah.js
++++ b/misc/ahah.js
+@@ -44,6 +44,8 @@ Drupal.ahah = function(base, element_settings) {
+   this.method = element_settings.method;
+   this.progress = element_settings.progress;
+   this.button = element_settings.button || { };
++  this.immutable = element_settings.immutable;
++  this.buildId = null;
+ 
+   if (this.effect == 'none') {
+     this.showEffect = 'show';
+@@ -76,6 +78,9 @@ Drupal.ahah = function(base, element_settings) {
+     beforeSubmit: function(form_values, element_settings, options) {
+       return ahah.beforeSubmit(form_values, element_settings, options);
+     },
++    beforeSend: function(request, options) {
++      return ahah.beforeSend(request, options);
++    },
+     success: function(response, status) {
+       // Sanity check for browser support (object expected).
+       // When using iFrame uploads, responses must be returned as a string.
+@@ -85,6 +90,7 @@ Drupal.ahah = function(base, element_settings) {
+       return ahah.success(response, status);
+     },
+     complete: function(response, status) {
++      ahah.complete(response, status);
+       if (status == 'error' || status == 'parsererror') {
+         return ahah.error(response, ahah.url);
+       }
+@@ -139,9 +145,29 @@ Drupal.ahah.prototype.beforeSubmit = function (form_values, element, options) {
+     }
+     $(this.element).after(this.progress.element);
+   }
++
++  // Record the build-id.
++  if (this.immutable) {
++    var ahah = this;
++    $.each(form_values, function () {
++      if (this.name == 'form_build_id') {
++        ahah.buildId = this.value;
++        return false;
++      }
++    });
++  }
+ };
+ 
+ /**
++ * Modify the request object before it is sent.
++ */
++Drupal.ahah.prototype.beforeSend = function (request, options) {
++  if (this.immutable) {
++    request.setRequestHeader('X-Drupal-Accept-Build-Id', '1');
++  }
++}
++
++/**
+  * Handler for the form redirection completion.
+  */
+ Drupal.ahah.prototype.success = function (response, status) {
+@@ -222,3 +248,19 @@ Drupal.ahah.prototype.error = function (response, uri) {
+   // Re-enable the element.
+   $(this.element).removeClass('progess-disabled').attr('disabled', false);
+ };
++
++/**
++ * Handler called when the request finishes, whether in failure or success.
++ */
++Drupal.ahah.prototype.complete = function (response, status) {
++  // Update form build id if necessary.
++  if (this.immutable) {
++    var newBuildId = response.getResponseHeader('X-Drupal-Build-Id');
++    if (this.buildId && newBuildId && this.buildId != newBuildId) {
++      var $element = $('input[name="form_build_id"][value="' + this.buildId + '"]');
++      $element.val(newBuildId);
++      $element.attr('id', newBuildId);
++    }
++    this.buildId = null;
++  }
++}
+diff --git a/modules/openid/xrds.inc b/modules/openid/xrds.inc
+index 36f5282..7810b3c 100644
+--- a/modules/openid/xrds.inc
++++ b/modules/openid/xrds.inc
+@@ -15,6 +15,22 @@ function xrds_parse($xml) {
+   xml_set_element_handler($parser, '_xrds_element_start', '_xrds_element_end');
+   xml_set_character_data_handler($parser, '_xrds_cdata');
+ 
++  // Since DOCTYPE declarations from an untrusted source could be malicious, we
++  // stop parsing here and treat the XML as invalid. XRDS documents do not
++  // require, and are not expected to have, a DOCTYPE.
++  if (preg_match('/<!DOCTYPE/i', $xml)) {
++    return array();
++  }
++
++  // Also stop parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('openid_xrds_maximum_tag_count', 30000)) {
++    return array();
++  }
++
+   xml_parse($parser, $xml);
+   xml_parser_free($parser);
+ 
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 09b9dde..9e852c2 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.30');
++define('VERSION', '6.33');
+ 
+ /**
+  * Core API compatibility.

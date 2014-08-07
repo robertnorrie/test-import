@@ -1,0 +1,97 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 2b8d4af..814adba 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 6.33, 2014-08-06
++----------------------
++- Fixed security issues (denial of service). See SA-CORE-2014-004.
++
+ Drupal 6.32, 2014-07-16
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
+diff --git a/includes/xmlrpc.inc b/includes/xmlrpc.inc
+index 13ebf09..9236d88 100644
+--- a/includes/xmlrpc.inc
++++ b/includes/xmlrpc.inc
+@@ -163,7 +163,38 @@ function xmlrpc_message_parse(&$xmlrpc_message) {
+   xml_set_element_handler($xmlrpc_message->_parser, 'xmlrpc_message_tag_open', 'xmlrpc_message_tag_close');
+   xml_set_character_data_handler($xmlrpc_message->_parser, 'xmlrpc_message_cdata');
+   xmlrpc_message_set($xmlrpc_message);
+-  if (!xml_parse($xmlrpc_message->_parser, $xmlrpc_message->message)) {
++
++  // Strip XML declaration.
++  $header = preg_replace('/<\?xml.*?\?'.'>/s', '', substr($xmlrpc_message->message, 0, 100), 1);
++  $xml = trim(substr_replace($xmlrpc_message->message, $header, 0, 100));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Strip DTD.
++  $header = preg_replace('/^<!DOCTYPE[^>]*+>/i', '', substr($xml, 0, 200), 1);
++  $xml = trim(substr_replace($xml, $header, 0, 200));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Confirm the XML now starts with a valid root tag. A root tag can end in [> \t\r\n]
++  $root_tag = substr($xml, 0, strcspn(substr($xml, 0, 20), "> \t\r\n"));
++  // Reject a second DTD.
++  if (strtoupper($root_tag) == '<!DOCTYPE') {
++    return FALSE;
++  }
++  if (!in_array($root_tag, array('<methodCall', '<methodResponse', '<fault'))) {
++    return FALSE;
++  }
++  // Skip parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('xmlrpc_message_maximum_tag_count', 30000)) {
++    return FALSE;
++  }
++
++  if (!xml_parse($xmlrpc_message->_parser, $xml)) {
+     return FALSE;
+   }
+   xml_parser_free($xmlrpc_message->_parser);
+diff --git a/modules/openid/xrds.inc b/modules/openid/xrds.inc
+index 36f5282..7810b3c 100644
+--- a/modules/openid/xrds.inc
++++ b/modules/openid/xrds.inc
+@@ -15,6 +15,22 @@ function xrds_parse($xml) {
+   xml_set_element_handler($parser, '_xrds_element_start', '_xrds_element_end');
+   xml_set_character_data_handler($parser, '_xrds_cdata');
+ 
++  // Since DOCTYPE declarations from an untrusted source could be malicious, we
++  // stop parsing here and treat the XML as invalid. XRDS documents do not
++  // require, and are not expected to have, a DOCTYPE.
++  if (preg_match('/<!DOCTYPE/i', $xml)) {
++    return array();
++  }
++
++  // Also stop parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('openid_xrds_maximum_tag_count', 30000)) {
++    return array();
++  }
++
+   xml_parse($parser, $xml);
+   xml_parser_free($parser);
+ 
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 8312b1d..9e852c2 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.32');
++define('VERSION', '6.33');
+ 
+ /**
+  * Core API compatibility.

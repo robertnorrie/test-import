@@ -1,0 +1,277 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 2b8d4af..814adba 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 6.33, 2014-08-06
++----------------------
++- Fixed security issues (denial of service). See SA-CORE-2014-004.
++
+ Drupal 6.32, 2014-07-16
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
+diff --git a/includes/common.inc b/includes/common.inc
+index e393c40..5f96d92 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -984,7 +984,7 @@ function t($string, $args = array(), $langcode = NULL) {
+ /**
+  * Verifies the syntax of the given e-mail address.
+  *
+- * See RFC 2822 for details.
++ * See @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink for details.
+  *
+  * @param $mail
+  *   A string containing an e-mail address.
+diff --git a/includes/form.inc b/includes/form.inc
+index 7a2a1af..e5bae60 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -341,7 +341,7 @@ function drupal_execute($form_id, &$form_state) {
+ 
+   // Make sure $form_state is passed around by reference.
+   $args[1] = &$form_state;
+-  
++
+   $form = call_user_func_array('drupal_retrieve_form', $args);
+   $form['#post'] = $form_state['values'];
+ 
+@@ -818,8 +818,8 @@ function form_execute_handlers($type, &$form, &$form_state) {
+ 
+   foreach ($handlers as $function) {
+     if (function_exists($function))  {
+-      // Check to see if a previous _submit handler has set a batch, but 
+-      // make sure we do not react to a batch that is already being processed 
++      // Check to see if a previous _submit handler has set a batch, but
++      // make sure we do not react to a batch that is already being processed
+       // (for instance if a batch operation performs a drupal_execute()).
+       if ($type == 'submit' && ($batch =& batch_get()) && !isset($batch['current_set'])) {
+         // Some previous _submit handler has set a batch. We store the call
+@@ -2477,8 +2477,8 @@ function form_clean_id($id = NULL, $flush = FALSE) {
+  *   - 'init_message': Message displayed while the processing is initialized.
+  *     Defaults to t('Initializing.').
+  *   - 'progress_message': Message displayed while processing the batch.
+- *     Available placeholders are @current, @remaining, @total, @percentage,
+- *     @estimate and @elapsed. Defaults to t('Completed @current of @total.').
++ *     Available placeholders are @current, @remaining, @total, and
++ *     @percentage. Defaults to t('Completed @current of @total.').
+  *   - 'error_message': Message displayed if an error occurred while processing
+  *     the batch. Defaults to t('An error has occurred.').
+  *   - 'finished': Name of a function to be executed after the batch has
+diff --git a/includes/mail.inc b/includes/mail.inc
+index 92540e2..12f08bc 100644
+--- a/includes/mail.inc
++++ b/includes/mail.inc
+@@ -59,11 +59,13 @@
+  *   will be {$module}_{$key}.
+  * @param $to
+  *   The e-mail address or addresses where the message will be sent to. The
+- *   formatting of this string must comply with RFC 2822. Some examples are:
+- *    user@example.com
+- *    user@example.com, anotheruser@example.com
+- *    User <user@example.com>
+- *    User <user@example.com>, Another User <anotheruser@example.com>
++ *   formatting of this string must comply with
++ *   @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *   Some examples are:
++ *   - user@example.com
++ *   - user@example.com, anotheruser@example.com
++ *   - User <user@example.com>
++ *   - User <user@example.com>, Another User <anotheruser@example.com>
+  * @param $language
+  *   Language object to use to compose the e-mail.
+  * @param $params
+@@ -72,6 +74,7 @@
+  *   Sets From to this value, if given.
+  * @param $send
+  *   Send the message directly, without calling drupal_mail_send() manually.
++ *
+  * @return
+  *   The $message array structure containing all details of the
+  *   message. If already sent ($send = TRUE), then the 'result' element
+@@ -145,26 +148,24 @@ function drupal_mail($module, $key, $to, $language, $params = array(), $from = N
+  * how $message is composed.
+  *
+  * @param $message
+- *  Message array with at least the following elements:
+- *   - id
+- *      A unique identifier of the e-mail type. Examples: 'contact_user_copy',
+- *      'user_password_reset'.
+- *   - to
+- *      The mail address or addresses where the message will be sent to. The
+- *      formatting of this string must comply with RFC 2822. Some examples are:
+- *       user@example.com
+- *       user@example.com, anotheruser@example.com
+- *       User <user@example.com>
+- *       User <user@example.com>, Another User <anotheruser@example.com>
+- *   - subject
+- *      Subject of the e-mail to be sent. This must not contain any newline
+- *      characters, or the mail may not be sent properly.
+- *   - body
+- *      Message to be sent. Accepts both CRLF and LF line-endings.
+- *      E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
+- *      smart plain text wrapping.
+- *   - headers
+- *      Associative array containing all mail headers.
++ *   Message array with at least the following elements:
++ *   - id: A unique identifier of the e-mail type. Examples:
++ *     'contact_user_copy', 'user_password_reset'.
++ *   - to: The mail address or addresses where the message will be sent to. The
++ *     formatting of this string must comply with
++ *     @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *     Some examples are:
++ *     - user@example.com
++ *     - user@example.com, anotheruser@example.com
++ *     - User <user@example.com>
++ *     - User <user@example.com>, Another User <anotheruser@example.com>
++ *   - subject: Subject of the e-mail to be sent. This must not contain any
++ *     newline characters, or the mail may not be sent properly.
++ *   - body: Message to be sent. Accepts both CRLF and LF line-endings.
++ *     E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
++ *     smart plain text wrapping.
++ *   - headers: Associative array containing all mail headers.
++ *
+  * @return
+  *   Returns TRUE if the mail was successfully accepted for delivery,
+  *   FALSE otherwise.
+@@ -254,6 +255,7 @@ function drupal_wrap_mail($text, $indent = '') {
+  * @param $allowed_tags (optional)
+  *   If supplied, a list of tags that will be transformed. If omitted, all
+  *   all supported tags are transformed.
++ *
+  * @return
+  *   The transformed string.
+  */
+diff --git a/includes/xmlrpc.inc b/includes/xmlrpc.inc
+index 13ebf09..9236d88 100644
+--- a/includes/xmlrpc.inc
++++ b/includes/xmlrpc.inc
+@@ -163,7 +163,38 @@ function xmlrpc_message_parse(&$xmlrpc_message) {
+   xml_set_element_handler($xmlrpc_message->_parser, 'xmlrpc_message_tag_open', 'xmlrpc_message_tag_close');
+   xml_set_character_data_handler($xmlrpc_message->_parser, 'xmlrpc_message_cdata');
+   xmlrpc_message_set($xmlrpc_message);
+-  if (!xml_parse($xmlrpc_message->_parser, $xmlrpc_message->message)) {
++
++  // Strip XML declaration.
++  $header = preg_replace('/<\?xml.*?\?'.'>/s', '', substr($xmlrpc_message->message, 0, 100), 1);
++  $xml = trim(substr_replace($xmlrpc_message->message, $header, 0, 100));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Strip DTD.
++  $header = preg_replace('/^<!DOCTYPE[^>]*+>/i', '', substr($xml, 0, 200), 1);
++  $xml = trim(substr_replace($xml, $header, 0, 200));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Confirm the XML now starts with a valid root tag. A root tag can end in [> \t\r\n]
++  $root_tag = substr($xml, 0, strcspn(substr($xml, 0, 20), "> \t\r\n"));
++  // Reject a second DTD.
++  if (strtoupper($root_tag) == '<!DOCTYPE') {
++    return FALSE;
++  }
++  if (!in_array($root_tag, array('<methodCall', '<methodResponse', '<fault'))) {
++    return FALSE;
++  }
++  // Skip parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('xmlrpc_message_maximum_tag_count', 30000)) {
++    return FALSE;
++  }
++
++  if (!xml_parse($xmlrpc_message->_parser, $xml)) {
+     return FALSE;
+   }
+   xml_parser_free($xmlrpc_message->_parser);
+diff --git a/modules/openid/openid.install b/modules/openid/openid.install
+index e8b095f..0b0c95d 100644
+--- a/modules/openid/openid.install
++++ b/modules/openid/openid.install
+@@ -142,7 +142,7 @@ function openid_update_6000() {
+   return $ret;
+ }
+ 
+- /**
++/**
+  * Bind associations to their providers.
+  */
+ function openid_update_6001() {
+@@ -191,7 +191,7 @@ function openid_update_6001() {
+         'not null' => TRUE,
+         'default' => 0,
+         'description' => 'The lifetime, in seconds, of this association.',
+-     ),
++      ),
+     ),
+     'primary key' => array('idp_endpoint_uri'),
+     'unique keys' => array(
+@@ -204,7 +204,6 @@ function openid_update_6001() {
+   return $ret;
+ }
+ 
+-
+ /**
+  * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+diff --git a/modules/openid/xrds.inc b/modules/openid/xrds.inc
+index 36f5282..7810b3c 100644
+--- a/modules/openid/xrds.inc
++++ b/modules/openid/xrds.inc
+@@ -15,6 +15,22 @@ function xrds_parse($xml) {
+   xml_set_element_handler($parser, '_xrds_element_start', '_xrds_element_end');
+   xml_set_character_data_handler($parser, '_xrds_cdata');
+ 
++  // Since DOCTYPE declarations from an untrusted source could be malicious, we
++  // stop parsing here and treat the XML as invalid. XRDS documents do not
++  // require, and are not expected to have, a DOCTYPE.
++  if (preg_match('/<!DOCTYPE/i', $xml)) {
++    return array();
++  }
++
++  // Also stop parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('openid_xrds_maximum_tag_count', 30000)) {
++    return array();
++  }
++
+   xml_parse($parser, $xml);
+   xml_parser_free($parser);
+ 
+diff --git a/modules/system/system.install b/modules/system/system.install
+index 1615c73..eb2080a 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -1,12 +1,7 @@
+ <?php
+ 
+ /**
+- * Test and report Drupal installation requirements.
+- *
+- * @param $phase
+- *   The current system installation phase.
+- * @return
+- *   An array of system requirements.
++ * Implementation of hook_requirements().
+  */
+ function system_requirements($phase) {
+   $requirements = array();
+diff --git a/modules/system/system.module b/modules/system/system.module
+index a25c8ff..05671bf 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.32');
++define('VERSION', '6.33');
+ 
+ /**
+  * Core API compatibility.
