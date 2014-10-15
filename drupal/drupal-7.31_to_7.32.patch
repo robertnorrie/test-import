@@ -1,0 +1,78 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 3a3abdc..02c9465 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.32, 2014-10-15
++----------------------
++- Fixed security issues (SQL injection). See SA-CORE-2014-005.
++
+ Drupal 7.31, 2014-08-06
+ ----------------------
+ - Fixed security issues (denial of service). See SA-CORE-2014-004.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index c2a84a1..c8d17f5 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.31');
++define('VERSION', '7.32');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/database/database.inc b/includes/database/database.inc
+index f78098b..01b6385 100644
+--- a/includes/database/database.inc
++++ b/includes/database/database.inc
+@@ -736,7 +736,7 @@ abstract class DatabaseConnection extends PDO {
+     // to expand it out into a comma-delimited set of placeholders.
+     foreach (array_filter($args, 'is_array') as $key => $data) {
+       $new_keys = array();
+-      foreach ($data as $i => $value) {
++      foreach (array_values($data) as $i => $value) {
+         // This assumes that there are no other placeholders that use the same
+         // name.  For example, if the array placeholder is defined as :example
+         // and there is already an :example_2 placeholder, this will generate
+diff --git a/modules/simpletest/tests/database_test.test b/modules/simpletest/tests/database_test.test
+index dba04b2..209bf68 100644
+--- a/modules/simpletest/tests/database_test.test
++++ b/modules/simpletest/tests/database_test.test
+@@ -3384,6 +3384,34 @@ class DatabaseQueryTestCase extends DatabaseTestCase {
+ 
+     $this->assertEqual(count($names), 3, 'Correct number of names returned');
+   }
++
++  /**
++   * Test SQL injection via database query array arguments.
++   */
++  public function testArrayArgumentsSQLInjection() {
++    // Attempt SQL injection and verify that it does not work.
++    $condition = array(
++      "1 ;INSERT INTO {test} SET name = 'test12345678'; -- " => '',
++      '1' => '',
++    );
++    try {
++      db_query("SELECT * FROM {test} WHERE name = :name", array(':name' => $condition))->fetchObject();
++      $this->fail('SQL injection attempt via array arguments should result in a PDOException.');
++    }
++    catch (PDOException $e) {
++      $this->pass('SQL injection attempt via array arguments should result in a PDOException.');
++    }
++
++    // Test that the insert query that was used in the SQL injection attempt did
++    // not result in a row being inserted in the database.
++    $result = db_select('test')
++      ->condition('name', 'test12345678')
++      ->countQuery()
++      ->execute()
++      ->fetchField();
++    $this->assertFalse($result, 'SQL injection attempt did not result in a row being inserted in the database table.');
++  }
++
+ }
+ 
+ /**

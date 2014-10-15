@@ -1,0 +1,161 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 57cc8b2..02c9465 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,12 @@
+ 
++Drupal 7.32, 2014-10-15
++----------------------
++- Fixed security issues (SQL injection). See SA-CORE-2014-005.
++
++Drupal 7.31, 2014-08-06
++----------------------
++- Fixed security issues (denial of service). See SA-CORE-2014-004.
++
+ Drupal 7.30, 2014-07-24
+ -----------------------
+ - Fixed a regression introduced in Drupal 7.29 that caused files or images
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index b61c9dd..c8d17f5 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.30');
++define('VERSION', '7.32');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/database/database.inc b/includes/database/database.inc
+index f78098b..01b6385 100644
+--- a/includes/database/database.inc
++++ b/includes/database/database.inc
+@@ -736,7 +736,7 @@ abstract class DatabaseConnection extends PDO {
+     // to expand it out into a comma-delimited set of placeholders.
+     foreach (array_filter($args, 'is_array') as $key => $data) {
+       $new_keys = array();
+-      foreach ($data as $i => $value) {
++      foreach (array_values($data) as $i => $value) {
+         // This assumes that there are no other placeholders that use the same
+         // name.  For example, if the array placeholder is defined as :example
+         // and there is already an :example_2 placeholder, this will generate
+diff --git a/includes/xmlrpc.inc b/includes/xmlrpc.inc
+index b1c6f39..dc69dd9 100644
+--- a/includes/xmlrpc.inc
++++ b/includes/xmlrpc.inc
+@@ -178,7 +178,41 @@ function xmlrpc_message_parse($xmlrpc_message) {
+   xml_set_element_handler($xmlrpc_message->_parser, 'xmlrpc_message_tag_open', 'xmlrpc_message_tag_close');
+   xml_set_character_data_handler($xmlrpc_message->_parser, 'xmlrpc_message_cdata');
+   xmlrpc_message_set($xmlrpc_message);
+-  if (!xml_parse($xmlrpc_message->_parser, $xmlrpc_message->message)) {
++
++  // Strip XML declaration.
++  $header = preg_replace('/<\?xml.*?\?'.'>/s', '', substr($xmlrpc_message->message, 0, 100), 1);
++  $xml = trim(substr_replace($xmlrpc_message->message, $header, 0, 100));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Strip DTD.
++  $header = preg_replace('/^<!DOCTYPE[^>]*+>/i', '', substr($xml, 0, 200), 1);
++  $xml = trim(substr_replace($xml, $header, 0, 200));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Confirm the XML now starts with a valid root tag. A root tag can end in [> \t\r\n]
++  $root_tag = substr($xml, 0, strcspn(substr($xml, 0, 20), "> \t\r\n"));
++  // Reject a second DTD.
++  if (strtoupper($root_tag) == '<!DOCTYPE') {
++    return FALSE;
++  }
++  if (!in_array($root_tag, array('<methodCall', '<methodResponse', '<fault'))) {
++    return FALSE;
++  }
++  // Skip parsing if there is an unreasonably large number of tags.
++  try {
++    $dom = new DOMDocument();
++    @$dom->loadXML($xml);
++    if ($dom->getElementsByTagName('*')->length > variable_get('xmlrpc_message_maximum_tag_count', 30000)) {
++      return FALSE;
++    }
++  }
++  catch (Exception $e) {
++    return FALSE;
++  }
++
++  if (!xml_parse($xmlrpc_message->_parser, $xml)) {
+     return FALSE;
+   }
+   xml_parser_free($xmlrpc_message->_parser);
+diff --git a/modules/openid/openid.inc b/modules/openid/openid.inc
+index d7ef663..a1da1d0 100644
+--- a/modules/openid/openid.inc
++++ b/modules/openid/openid.inc
+@@ -158,6 +158,11 @@ function _openid_xrds_parse($raw_xml) {
+     return array();
+   }
+ 
++  // Also stop parsing if there is an unreasonably large number of tags.
++  if ($dom->getElementsByTagName('*')->length > variable_get('openid_xrds_maximum_tag_count', 30000)) {
++    return array();
++  }
++
+   // Parse the DOM document for the information we need.
+   if ($xml = simplexml_import_dom($dom)) {
+     foreach ($xml->children(OPENID_NS_XRD)->XRD as $xrd) {
+diff --git a/modules/simpletest/tests/database_test.test b/modules/simpletest/tests/database_test.test
+index dba04b2..209bf68 100644
+--- a/modules/simpletest/tests/database_test.test
++++ b/modules/simpletest/tests/database_test.test
+@@ -3384,6 +3384,34 @@ class DatabaseQueryTestCase extends DatabaseTestCase {
+ 
+     $this->assertEqual(count($names), 3, 'Correct number of names returned');
+   }
++
++  /**
++   * Test SQL injection via database query array arguments.
++   */
++  public function testArrayArgumentsSQLInjection() {
++    // Attempt SQL injection and verify that it does not work.
++    $condition = array(
++      "1 ;INSERT INTO {test} SET name = 'test12345678'; -- " => '',
++      '1' => '',
++    );
++    try {
++      db_query("SELECT * FROM {test} WHERE name = :name", array(':name' => $condition))->fetchObject();
++      $this->fail('SQL injection attempt via array arguments should result in a PDOException.');
++    }
++    catch (PDOException $e) {
++      $this->pass('SQL injection attempt via array arguments should result in a PDOException.');
++    }
++
++    // Test that the insert query that was used in the SQL injection attempt did
++    // not result in a row being inserted in the database.
++    $result = db_select('test')
++      ->condition('name', 'test12345678')
++      ->countQuery()
++      ->execute()
++      ->fetchField();
++    $this->assertFalse($result, 'SQL injection attempt did not result in a row being inserted in the database table.');
++  }
++
+ }
+ 
+ /**
+diff --git a/modules/simpletest/tests/xmlrpc.test b/modules/simpletest/tests/xmlrpc.test
+index 1a0fd86..1a9ef23 100644
+--- a/modules/simpletest/tests/xmlrpc.test
++++ b/modules/simpletest/tests/xmlrpc.test
+@@ -211,6 +211,11 @@ class XMLRPCMessagesTestCase extends DrupalWebTestCase {
+    * Make sure that XML-RPC can transfer large messages.
+    */
+   function testSizedMessages() {
++    // These tests can produce up to 128 x 160 words in the XML-RPC message
++    // (see xmlrpc_test_message_sized_in_kb()) with 4 tags used to represent
++    // each. Set a large enough tag limit to allow this to be tested.
++    variable_set('xmlrpc_message_maximum_tag_count', 100000);
++
+     $xml_url = url(NULL, array('absolute' => TRUE)) . 'xmlrpc.php';
+     $sizes = array(8, 80, 160);
+     foreach ($sizes as $size) {
