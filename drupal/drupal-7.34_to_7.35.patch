@@ -1,0 +1,616 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index ef848fb..e6ede75 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.35, 2015-03-18
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-001.
++
+ Drupal 7.34, 2014-11-19
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-006.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 744fc8f..b33f950 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.34');
++define('VERSION', '7.35');
+ 
+ /**
+  * Core API compatibility.
+@@ -2497,6 +2497,26 @@ function _drupal_bootstrap_variables() {
+   // Load bootstrap modules.
+   require_once DRUPAL_ROOT . '/includes/module.inc';
+   module_load_all(TRUE);
++
++  // Sanitize the destination parameter (which is often used for redirects) to
++  // prevent open redirect attacks leading to other domains. Sanitize both
++  // $_GET['destination'] and $_REQUEST['destination'] to protect code that
++  // relies on either, but do not sanitize $_POST to avoid interfering with
++  // unrelated form submissions. The sanitization happens here because
++  // url_is_external() requires the variable system to be available.
++  if (isset($_GET['destination']) || isset($_REQUEST['destination'])) {
++    require_once DRUPAL_ROOT . '/includes/common.inc';
++    // If the destination is an external URL, remove it.
++    if (isset($_GET['destination']) && url_is_external($_GET['destination'])) {
++      unset($_GET['destination']);
++      unset($_REQUEST['destination']);
++    }
++    // If there's still something in $_REQUEST['destination'] that didn't come
++    // from $_GET, check it too.
++    if (isset($_REQUEST['destination']) && (!isset($_GET['destination']) || $_REQUEST['destination'] != $_GET['destination']) && url_is_external($_REQUEST['destination'])) {
++      unset($_REQUEST['destination']);
++    }
++  }
+ }
+ 
+ /**
+diff --git a/includes/common.inc b/includes/common.inc
+index 20cc82b..ad2a345 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -2214,14 +2214,20 @@ function url($path = NULL, array $options = array()) {
+     'prefix' => ''
+   );
+ 
++  // A duplicate of the code from url_is_external() to avoid needing another
++  // function call, since performance inside url() is critical.
+   if (!isset($options['external'])) {
+-    // Return an external link if $path contains an allowed absolute URL. Only
+-    // call the slow drupal_strip_dangerous_protocols() if $path contains a ':'
+-    // before any / ? or #. Note: we could use url_is_external($path) here, but
+-    // that would require another function call, and performance inside url() is
+-    // critical.
++    // Return an external link if $path contains an allowed absolute URL. Avoid
++    // calling drupal_strip_dangerous_protocols() if there is any slash (/),
++    // hash (#) or question_mark (?) before the colon (:) occurrence - if any -
++    // as this would clearly mean it is not a URL. If the path starts with 2
++    // slashes then it is always considered an external URL without an explicit
++    // protocol part.
+     $colonpos = strpos($path, ':');
+-    $options['external'] = ($colonpos !== FALSE && !preg_match('![/?#]!', substr($path, 0, $colonpos)) && drupal_strip_dangerous_protocols($path) == $path);
++    $options['external'] = (strpos($path, '//') === 0)
++      || ($colonpos !== FALSE
++        && !preg_match('![/?#]!', substr($path, 0, $colonpos))
++        && drupal_strip_dangerous_protocols($path) == $path);
+   }
+ 
+   // Preserve the original path before altering or aliasing.
+@@ -2259,6 +2265,11 @@ function url($path = NULL, array $options = array()) {
+     return $path . $options['fragment'];
+   }
+ 
++  // Strip leading slashes from internal paths to prevent them becoming external
++  // URLs without protocol. /example.com should not be turned into
++  // //example.com.
++  $path = ltrim($path, '/');
++
+   global $base_url, $base_secure_url, $base_insecure_url;
+ 
+   // The base_url might be rewritten from the language rewrite in domain mode.
+@@ -2336,10 +2347,15 @@ function url($path = NULL, array $options = array()) {
+  */
+ function url_is_external($path) {
+   $colonpos = strpos($path, ':');
+-  // Avoid calling drupal_strip_dangerous_protocols() if there is any
+-  // slash (/), hash (#) or question_mark (?) before the colon (:)
+-  // occurrence - if any - as this would clearly mean it is not a URL.
+-  return $colonpos !== FALSE && !preg_match('![/?#]!', substr($path, 0, $colonpos)) && drupal_strip_dangerous_protocols($path) == $path;
++  // Avoid calling drupal_strip_dangerous_protocols() if there is any slash (/),
++  // hash (#) or question_mark (?) before the colon (:) occurrence - if any - as
++  // this would clearly mean it is not a URL. If the path starts with 2 slashes
++  // then it is always considered an external URL without an explicit protocol
++  // part.
++  return (strpos($path, '//') === 0)
++    || ($colonpos !== FALSE
++      && !preg_match('![/?#]!', substr($path, 0, $colonpos))
++      && drupal_strip_dangerous_protocols($path) == $path);
+ }
+ 
+ /**
+@@ -2636,7 +2652,10 @@ function drupal_deliver_html_page($page_callback_result) {
+ 
+         // Keep old path for reference, and to allow forms to redirect to it.
+         if (!isset($_GET['destination'])) {
+-          $_GET['destination'] = $_GET['q'];
++          // Make sure that the current path is not interpreted as external URL.
++          if (!url_is_external($_GET['q'])) {
++            $_GET['destination'] = $_GET['q'];
++          }
+         }
+ 
+         $path = drupal_get_normal_path(variable_get('site_404', ''));
+@@ -2665,7 +2684,10 @@ function drupal_deliver_html_page($page_callback_result) {
+ 
+         // Keep old path for reference, and to allow forms to redirect to it.
+         if (!isset($_GET['destination'])) {
+-          $_GET['destination'] = $_GET['q'];
++          // Make sure that the current path is not interpreted as external URL.
++          if (!url_is_external($_GET['q'])) {
++            $_GET['destination'] = $_GET['q'];
++          }
+         }
+ 
+         $path = drupal_get_normal_path(variable_get('site_403', ''));
+diff --git a/modules/simpletest/tests/bootstrap.test b/modules/simpletest/tests/bootstrap.test
+index f723c63..14523f2 100644
+--- a/modules/simpletest/tests/bootstrap.test
++++ b/modules/simpletest/tests/bootstrap.test
+@@ -546,3 +546,85 @@ function testDrupalOverrideServerVariablesProvidedURL() {
+     }
+   }
+ }
++
++/**
++ * Tests for $_GET['destination'] and $_REQUEST['destination'] validation.
++ */
++class BootstrapDestinationTestCase extends DrupalWebTestCase {
++
++  public static function getInfo() {
++    return array(
++      'name' => 'URL destination validation',
++      'description' => 'Test that $_GET[\'destination\'] and $_REQUEST[\'destination\'] cannot contain external URLs.',
++      'group' => 'Bootstrap',
++    );
++  }
++
++  function setUp() {
++    parent::setUp('system_test');
++  }
++
++  /**
++   * Tests that $_GET/$_REQUEST['destination'] only contain internal URLs.
++   *
++   * @see _drupal_bootstrap_variables()
++   * @see system_test_get_destination()
++   * @see system_test_request_destination()
++   */
++  public function testDestination() {
++    $test_cases = array(
++      array(
++        'input' => 'node',
++        'output' => 'node',
++        'message' => "Standard internal example node path is present in the 'destination' parameter.",
++      ),
++      array(
++        'input' => '/example.com',
++        'output' => '/example.com',
++        'message' => 'Internal path with one leading slash is allowed.',
++      ),
++      array(
++        'input' => '//example.com/test',
++        'output' => '',
++        'message' => 'External URL without scheme is not allowed.',
++      ),
++      array(
++        'input' => 'example:test',
++        'output' => 'example:test',
++        'message' => 'Internal URL using a colon is allowed.',
++      ),
++      array(
++        'input' => 'http://example.com',
++        'output' => '',
++        'message' => 'External URL is not allowed.',
++      ),
++      array(
++        'input' => 'javascript:alert(0)',
++        'output' => 'javascript:alert(0)',
++        'message' => 'Javascript URL is allowed because it is treated as an internal URL.',
++      ),
++    );
++    foreach ($test_cases as $test_case) {
++      // Test $_GET['destination'].
++      $this->drupalGet('system-test/get-destination', array('query' => array('destination' => $test_case['input'])));
++      $this->assertIdentical($test_case['output'], $this->drupalGetContent(), $test_case['message']);
++      // Test $_REQUEST['destination']. There's no form to submit to, so
++      // drupalPost() won't work here; this just tests a direct $_POST request
++      // instead.
++      $curl_parameters = array(
++        CURLOPT_URL => $this->getAbsoluteUrl('system-test/request-destination'),
++        CURLOPT_POST => TRUE,
++        CURLOPT_POSTFIELDS => 'destination=' . urlencode($test_case['input']),
++        CURLOPT_HTTPHEADER => array(),
++      );
++      $post_output = $this->curlExec($curl_parameters);
++      $this->assertIdentical($test_case['output'], $post_output, $test_case['message']);
++    }
++
++    // Make sure that 404 pages do not populate $_GET['destination'] with
++    // external URLs.
++    variable_set('site_404', 'system-test/get-destination');
++    $this->drupalGet('http://example.com', array('external' => FALSE));
++    $this->assertIdentical('', $this->drupalGetContent(), 'External URL is not allowed on 404 pages.');
++  }
++}
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index eebfdbe..b8ad0cc 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -209,7 +209,16 @@ function testDrupalParseUrl() {
+     // Test that drupal can recognize an absolute URL. Used to prevent attack vectors.
+     $this->assertTrue(url_is_external($url), 'Correctly identified an external URL.');
+ 
++    // External URL without an explicit protocol.
++    $url = '//drupal.org/foo/bar?foo=bar&bar=baz&baz#foo';
++    $this->assertTrue(url_is_external($url), 'Correctly identified an external URL without a protocol part.');
++
++    // Internal URL starting with a slash.
++    $url = '/drupal.org';
++    $this->assertFalse(url_is_external($url), 'Correctly identified an internal URL with a leading slash.');
++
+     // Test the parsing of absolute URLs.
++    $url = 'http://drupal.org/foo/bar?foo=bar&bar=baz&baz#foo';
+     $result = array(
+       'path' => 'http://drupal.org/foo/bar',
+       'query' => array('foo' => 'bar', 'bar' => 'baz', 'baz' => ''),
+@@ -349,6 +358,17 @@ function testExternalUrls() {
+     $query = array($this->randomName(5) => $this->randomName(5));
+     $result = url($url, array('query' => $query));
+     $this->assertEqual($url . '&' . http_build_query($query, '', '&'), $result, 'External URL query string can be extended with a custom query string in $options.');
++
++    // Verify that an internal URL does not result in an external URL without
++    // protocol part.
++    $url = '/drupal.org';
++    $result = url($url);
++    $this->assertTrue(strpos($result, '//') === FALSE, 'Internal URL does not turn into an external URL.');
++
++    // Verify that an external URL without protocol part is recognized as such.
++    $url = '//drupal.org';
++    $result = url($url);
++    $this->assertEqual($url, $result, 'External URL without protocol is not altered.');
+   }
+ }
+ 
+diff --git a/modules/simpletest/tests/system_test.module b/modules/simpletest/tests/system_test.module
+index 2eda351..c0eed03 100644
+--- a/modules/simpletest/tests/system_test.module
++++ b/modules/simpletest/tests/system_test.module
+@@ -106,6 +106,20 @@ function system_test_menu() {
+     'type' => MENU_CALLBACK,
+   );
+ 
++  $items['system-test/get-destination'] = array(
++    'title' => 'Test $_GET[\'destination\']',
++    'page callback' => 'system_test_get_destination',
++    'access callback' => TRUE,
++    'type' => MENU_CALLBACK,
++  );
++
++  $items['system-test/request-destination'] = array(
++    'title' => 'Test $_REQUEST[\'destination\']',
++    'page callback' => 'system_test_request_destination',
++    'access callback' => TRUE,
++    'type' => MENU_CALLBACK,
++  );
++
+   return $items;
+ }
+ 
+@@ -420,3 +434,27 @@ function system_test_authorize_init_page($page_title) {
+   system_authorized_init('system_test_authorize_run', drupal_get_path('module', 'system_test') . '/system_test.module', array(), $page_title);
+   drupal_goto($authorize_url);
+ }
++
++/**
++ * Page callback to print out $_GET['destination'] for testing.
++ */
++function system_test_get_destination() {
++  if (isset($_GET['destination'])) {
++    print $_GET['destination'];
++  }
++  // No need to render the whole page, we are just interested in this bit of
++  // information.
++  exit;
++}
++
++/**
++ * Page callback to print out $_REQUEST['destination'] for testing.
++ */
++function system_test_request_destination() {
++  if (isset($_REQUEST['destination'])) {
++    print $_REQUEST['destination'];
++  }
++  // No need to render the whole page, we are just interested in this bit of
++  // information.
++  exit;
++}
+diff --git a/modules/statistics/statistics.test b/modules/statistics/statistics.test
+index 0498bb7..7e038d6 100644
+--- a/modules/statistics/statistics.test
++++ b/modules/statistics/statistics.test
+@@ -414,7 +414,7 @@ function testDeleteUser() {
+     $timestamp = time();
+     $this->drupalPost(NULL, NULL, t('Cancel account'));
+     // Confirm account cancellation request.
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $this->assertFalse(user_load($account->uid, TRUE), 'User is not found in the database.');
+ 
+     $this->drupalGet('admin/reports/visitors');
+diff --git a/modules/system/system.test b/modules/system/system.test
+index aefbfbc..dcc86e5 100644
+--- a/modules/system/system.test
++++ b/modules/system/system.test
+@@ -2825,3 +2825,46 @@ public function errorHandler($severity, $message, $file = NULL, $line = NULL) {
+     return TRUE;
+   }
+ }
++
++/**
++ * Tests confirm form destinations.
++ */
++class ConfirmFormTest extends DrupalWebTestCase {
++  protected $admin_user;
++
++  public static function getInfo() {
++    return array(
++      'name' => 'Confirm form',
++      'description' => 'Tests that the confirm form does not use external destinations.',
++      'group' => 'System',
++    );
++  }
++
++  function setUp() {
++    parent::setUp();
++
++    $this->admin_user = $this->drupalCreateUser(array('administer users'));
++    $this->drupalLogin($this->admin_user);
++  }
++
++  /**
++   * Tests that the confirm form does not use external destinations.
++   */
++  function testConfirmForm() {
++    $this->drupalGet('user/1/cancel');
++    $this->assertCancelLinkUrl(url('user/1'));
++    $this->drupalGet('user/1/cancel', array('query' => array('destination' => 'node')));
++    $this->assertCancelLinkUrl(url('node'));
++    $this->drupalGet('user/1/cancel', array('query' => array('destination' => 'http://example.com')));
++    $this->assertCancelLinkUrl(url('user/1'));
++  }
++
++  /**
++   * Asserts that a cancel link is present pointing to the provided URL.
++   */
++  function assertCancelLinkUrl($url, $message = '', $group = 'Other') {
++    $links = $this->xpath('//a[normalize-space(text())=:label and @href=:url]', array(':label' => t('Cancel'), ':url' => $url));
++    $message = ($message ? $message : format_string('Cancel link with url %url found.', array('%url' => $url)));
++    return $this->assertTrue(isset($links[0]), $message, $group);
++  }
++}
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 60f32a1..bdfd36f 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -2335,7 +2335,7 @@ function user_external_login_register($name, $module) {
+  */
+ function user_pass_reset_url($account) {
+   $timestamp = REQUEST_TIME;
+-  return url("user/reset/$account->uid/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login), array('absolute' => TRUE));
++  return url("user/reset/$account->uid/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid), array('absolute' => TRUE));
+ }
+ 
+ /**
+@@ -2357,7 +2357,7 @@ function user_pass_reset_url($account) {
+  */
+ function user_cancel_url($account) {
+   $timestamp = REQUEST_TIME;
+-  return url("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login), array('absolute' => TRUE));
++  return url("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid), array('absolute' => TRUE));
+ }
+ 
+ /**
+@@ -2377,12 +2377,33 @@ function user_cancel_url($account) {
+  *   A UNIX timestamp, typically REQUEST_TIME.
+  * @param int $login
+  *   The UNIX timestamp of the user's last login.
++ * @param int $uid
++ *   The user ID of the user account.
+  *
+  * @return
+  *   A string that is safe for use in URLs and SQL statements.
+  */
+-function user_pass_rehash($password, $timestamp, $login) {
+-  return drupal_hmac_base64($timestamp . $login, drupal_get_hash_salt() . $password);
++function user_pass_rehash($password, $timestamp, $login, $uid) {
++  // Backwards compatibility: Try to determine a $uid if one was not passed.
++  // (Since $uid is a required parameter to this function, a PHP warning will
++  // be generated if it's not provided, which is an indication that the calling
++  // code should be updated. But the code below will try to generate a correct
++  // hash in the meantime.)
++  if (!isset($uid)) {
++    $uids = db_query_range('SELECT uid FROM {users} WHERE pass = :password AND login = :login AND uid > 0', 0, 2, array(':password' => $password, ':login' => $login))->fetchCol();
++    // If exactly one user account matches the provided password and login
++    // timestamp, proceed with that $uid.
++    if (count($uids) == 1) {
++      $uid = reset($uids);
++    }
++    // Otherwise there is no safe hash to return, so return a random string
++    // that will never be treated as a valid token.
++    else {
++      return drupal_random_key();
++    }
++  }
++
++  return drupal_hmac_base64($timestamp . $login . $uid, drupal_get_hash_salt() . $password);
+ }
+ 
+ /**
+diff --git a/modules/user/user.pages.inc b/modules/user/user.pages.inc
+index 8ec2348..6b7d38e 100644
+--- a/modules/user/user.pages.inc
++++ b/modules/user/user.pages.inc
+@@ -126,7 +126,7 @@ function user_pass_reset($form, &$form_state, $uid, $timestamp, $hashed_pass, $a
+         drupal_set_message(t('You have tried to use a one-time login link that has expired. Please request a new one using the form below.'));
+         drupal_goto('user/password');
+       }
+-      elseif ($account->uid && $timestamp >= $account->login && $timestamp <= $current && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login)) {
++      elseif ($account->uid && $timestamp >= $account->login && $timestamp <= $current && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid)) {
+         // First stage is a confirmation form, then login
+         if ($action == 'login') {
+           // Set the new user.
+@@ -523,7 +523,7 @@ function user_cancel_confirm($account, $timestamp = 0, $hashed_pass = '') {
+   // Basic validation of arguments.
+   if (isset($account->data['user_cancel_method']) && !empty($timestamp) && !empty($hashed_pass)) {
+     // Validate expiration and hashed password/login.
+-    if ($timestamp <= $current && $current - $timestamp < $timeout && $account->uid && $timestamp >= $account->login && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login)) {
++    if ($timestamp <= $current && $current - $timestamp < $timeout && $account->uid && $timestamp >= $account->login && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid)) {
+       $edit = array(
+         'user_cancel_notify' => isset($account->data['user_cancel_notify']) ? $account->data['user_cancel_notify'] : variable_get('user_mail_status_canceled_notify', FALSE),
+       );
+diff --git a/modules/user/user.test b/modules/user/user.test
+index 03f0bbc..07be4c2 100644
+--- a/modules/user/user.test
++++ b/modules/user/user.test
+@@ -498,7 +498,7 @@ function testUserPasswordResetExpired() {
+     // To attempt an expired password reset, create a password reset link as if
+     // its request time was 60 seconds older than the allowed limit of timeout.
+     $bogus_timestamp = REQUEST_TIME - variable_get('user_password_reset_timeout', 86400) - 60;
+-    $this->drupalGet("user/reset/$account->uid/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login));
++    $this->drupalGet("user/reset/$account->uid/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login, $account->uid));
+     $this->assertText(t('You have tried to use a one-time login link that has expired. Please request a new one using the form below.'), 'Expired password reset request rejected.');
+   }
+ 
+@@ -519,6 +519,74 @@ function testUserPasswordTextboxFilled() {
+     $this->assertFieldByName('name', $edit['name'], 'User name found.');
+   }
+ 
++  /**
++   * Make sure that users cannot forge password reset URLs of other users.
++   */
++  function testResetImpersonation() {
++    // Make sure user 1 has a valid password, so it does not interfere with the
++    // test user accounts that are created below.
++    $account = user_load(1);
++    user_save($account, array('pass' => user_password()));
++
++    // Create two identical user accounts except for the user name. They must
++    // have the same empty password, so we can't use $this->drupalCreateUser().
++    $edit = array();
++    $edit['name'] = $this->randomName();
++    $edit['mail'] = $edit['name'] . '@example.com';
++    $edit['status'] = 1;
++
++    $user1 = user_save(drupal_anonymous_user(), $edit);
++
++    $edit['name'] = $this->randomName();
++    $user2 = user_save(drupal_anonymous_user(), $edit);
++
++    // The password reset URL must not be valid for the second user when only
++    // the user ID is changed in the URL.
++    $reset_url = user_pass_reset_url($user1);
++    $attack_reset_url = str_replace("user/reset/$user1->uid", "user/reset/$user2->uid", $reset_url);
++    $this->drupalGet($attack_reset_url);
++    $this->assertNoText($user2->name, 'The invalid password reset page does not show the user name.');
++    $this->assertUrl('user/password', array(), 'The user is redirected to the password reset request page.');
++    $this->assertText('You have tried to use a one-time login link that has either been used or is no longer valid. Please request a new one using the form below.');
++
++    // When legacy code calls user_pass_rehash() without providing the $uid
++    // parameter, neither password reset URL should be valid since it is
++    // impossible for the system to determine which user account the token was
++    // intended for.
++    $timestamp = REQUEST_TIME;
++    // Pass an explicit NULL for the $uid parameter of user_pass_rehash()
++    // rather than not passing it at all, to avoid triggering PHP warnings in
++    // the test.
++    $reset_url_token = user_pass_rehash($user1->pass, $timestamp, $user1->login, NULL);
++    $reset_url = url("user/reset/$user1->uid/$timestamp/$reset_url_token", array('absolute' => TRUE));
++    $this->drupalGet($reset_url);
++    $this->assertNoText($user1->name, 'The invalid password reset page does not show the user name.');
++    $this->assertUrl('user/password', array(), 'The user is redirected to the password reset request page.');
++    $this->assertText('You have tried to use a one-time login link that has either been used or is no longer valid. Please request a new one using the form below.');
++    $attack_reset_url = str_replace("user/reset/$user1->uid", "user/reset/$user2->uid", $reset_url);
++    $this->drupalGet($attack_reset_url);
++    $this->assertNoText($user2->name, 'The invalid password reset page does not show the user name.');
++    $this->assertUrl('user/password', array(), 'The user is redirected to the password reset request page.');
++    $this->assertText('You have tried to use a one-time login link that has either been used or is no longer valid. Please request a new one using the form below.');
++
++    // To verify that user_pass_rehash() never returns a valid result in the
++    // above situation (even if legacy code also called it to attempt to
++    // validate the token, rather than just to generate the URL), check that a
++    // second call with the same parameters produces a different result.
++    $new_reset_url_token = user_pass_rehash($user1->pass, $timestamp, $user1->login, NULL);
++    $this->assertNotEqual($reset_url_token, $new_reset_url_token);
++
++    // However, when the duplicate account is removed, the password reset URL
++    // should be valid.
++    user_delete($user2->uid);
++    $reset_url_token = user_pass_rehash($user1->pass, $timestamp, $user1->login, NULL);
++    $reset_url = url("user/reset/$user1->uid/$timestamp/$reset_url_token", array('absolute' => TRUE));
++    $this->drupalGet($reset_url);
++    $this->assertText($user1->name, 'The valid password reset page shows the user name.');
++    $this->assertUrl($reset_url, array(), 'The user remains on the password reset login page.');
++    $this->assertNoText('You have tried to use a one-time login link that has either been used or is no longer valid. Please request a new one using the form below.');
++  }
++
+ }
+ 
+ /**
+@@ -558,7 +626,7 @@ function testUserCancelWithoutPermission() {
+ 
+     // Attempt bogus account cancellation request confirmation.
+     $timestamp = $account->login;
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $this->assertResponse(403, 'Bogus cancelling request rejected.');
+     $account = user_load($account->uid);
+     $this->assertTrue($account->status == 1, 'User account was not canceled.');
+@@ -631,14 +699,14 @@ function testUserCancelInvalid() {
+ 
+     // Attempt bogus account cancellation request confirmation.
+     $bogus_timestamp = $timestamp + 60;
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login, $account->uid));
+     $this->assertText(t('You have tried to use an account cancellation link that has expired. Please request a new one using the form below.'), 'Bogus cancelling request rejected.');
+     $account = user_load($account->uid);
+     $this->assertTrue($account->status == 1, 'User account was not canceled.');
+ 
+     // Attempt expired account cancellation request confirmation.
+     $bogus_timestamp = $timestamp - 86400 - 60;
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$bogus_timestamp/" . user_pass_rehash($account->pass, $bogus_timestamp, $account->login, $account->uid));
+     $this->assertText(t('You have tried to use an account cancellation link that has expired. Please request a new one using the form below.'), 'Expired cancel account request rejected.');
+     $accounts = user_load_multiple(array($account->uid), array('status' => 1));
+     $this->assertTrue(reset($accounts), 'User account was not canceled.');
+@@ -675,7 +743,7 @@ function testUserBlock() {
+     $this->assertText(t('A confirmation request to cancel your account has been sent to your e-mail address.'), 'Account cancellation request mailed message displayed.');
+ 
+     // Confirm account cancellation request.
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $account = user_load($account->uid, TRUE);
+     $this->assertTrue($account->status == 0, 'User has been blocked.');
+ 
+@@ -713,7 +781,7 @@ function testUserBlockUnpublish() {
+     $this->assertText(t('A confirmation request to cancel your account has been sent to your e-mail address.'), 'Account cancellation request mailed message displayed.');
+ 
+     // Confirm account cancellation request.
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $account = user_load($account->uid, TRUE);
+     $this->assertTrue($account->status == 0, 'User has been blocked.');
+ 
+@@ -763,7 +831,7 @@ function testUserAnonymize() {
+     $this->assertText(t('A confirmation request to cancel your account has been sent to your e-mail address.'), 'Account cancellation request mailed message displayed.');
+ 
+     // Confirm account cancellation request.
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $this->assertFalse(user_load($account->uid, TRUE), 'User is not found in the database.');
+ 
+     // Confirm that user's content has been attributed to anonymous user.
+@@ -827,7 +895,7 @@ function testUserDelete() {
+     $this->assertText(t('A confirmation request to cancel your account has been sent to your e-mail address.'), 'Account cancellation request mailed message displayed.');
+ 
+     // Confirm account cancellation request.
+-    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login));
++    $this->drupalGet("user/$account->uid/cancel/confirm/$timestamp/" . user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid));
+     $this->assertFalse(user_load($account->uid, TRUE), 'User is not found in the database.');
+ 
+     // Confirm that user's content has been deleted.
