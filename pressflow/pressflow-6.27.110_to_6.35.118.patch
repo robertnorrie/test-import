@@ -1,0 +1,2051 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 7139234..389eee7 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,3 +1,36 @@
++
++Drupal 6.35, 2015-03-18
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-001.
++
++Drupal 6.34, 2014-11-19
++----------------------
++- Fixed security issues (session hijacking). See SA-CORE-2014-006.
++
++Drupal 6.33, 2014-08-06
++----------------------
++- Fixed security issues (denial of service). See SA-CORE-2014-004.
++
++Drupal 6.32, 2014-07-16
++----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
++
++Drupal 6.31, 2014-04-16
++----------------------
++- Fixed security issues (information disclosure). See SA-CORE-2014-002.
++
++Drupal 6.30, 2014-01-15
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2014-001.
++
++Drupal 6.29, 2013-11-20
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-003.
++
++Drupal 6.28, 2013-01-16
++----------------------
++- Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-001.
++
+ Drupal 6.27, 2012-12-19
+ ----------------------
+ - Fixed security issues (multiple vulnerabilities), see SA-CORE-2012-004.
+diff --git a/COPYRIGHT.txt b/COPYRIGHT.txt
+index 94bfd61..89cc880 100644
+--- a/COPYRIGHT.txt
++++ b/COPYRIGHT.txt
+@@ -1,5 +1,4 @@
+-
+-All Drupal code is Copyright 2001 - 2010 by the original authors.
++All Drupal code is Copyright 2001 - 2012 by the original authors.
+ 
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+@@ -20,5 +19,11 @@ Drupal includes works under other copyright notices and distributed
+ according to the terms of the GNU General Public License or a compatible
+ license, including:
+ 
+-  jQuery - Copyright (c) 2008 - 2009 John Resig
++Javascript
++
++  Farbtastic - Copyright (c) 2007 Matt Farina
++
++  jQuery - Copyright (c) 2008 John Resig
++
++  jQuery Form - Copyright (c) 2007 Mike Alsup
+ 
+diff --git a/MAINTAINERS.txt b/MAINTAINERS.txt
+index 9c09f88..da831f9 100644
+--- a/MAINTAINERS.txt
++++ b/MAINTAINERS.txt
+@@ -57,7 +57,7 @@ M: Sammy Spets <sammys-drupal@synerger.com>
+ S: maintained
+ 
+ SECURITY COORDINATOR
+-M: Heine Deelstra <hdeelstra@gmail.com>
++M: Greg Knaddison <http://drupal.org/user/36762>
+ S: maintained
+ 
+ STATISTICS MODULE
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index d857f65..58b74a6 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -372,7 +372,14 @@ function drupal_unset_globals() {
+  *  TRUE if only containing valid characters, or FALSE otherwise.
+  */
+ function drupal_valid_http_host($host) {
+-  return preg_match('/^\[?(?:[a-z0-9-:\]_]+\.?)+$/', $host);
++  // Limit the length of the host name to 1000 bytes to prevent DoS attacks with
++  // long host names.
++  return strlen($host) <= 1000
++    // Limit the number of subdomains and port separators to prevent DoS attacks
++    // in conf_path().
++    && substr_count($host, '.') <= 100
++    && substr_count($host, ':') <= 100
++    && preg_match('/^\[?(?:[a-zA-Z0-9-:\]_]+\.?)+$/', $host);
+ }
+ 
+ /**
+@@ -411,7 +418,7 @@ function conf_init() {
+     include_once './'. conf_path() .'/settings.php';
+   }
+ 
+-  // Ignore the placeholder url from default.settings.php.
++  // Ignore the placeholder URL from default.settings.php.
+   if (isset($db_url) && $db_url == 'mysql://username:password@localhost/databasename') {
+     $db_url = '';
+   }
+@@ -450,7 +457,7 @@ function conf_init() {
+   }
+   else {
+     // Otherwise use $base_url as session name, without the protocol
+-    // to use the same session identifiers across http and https.
++    // to use the same session identifiers across HTTP and HTTPS.
+     list( , $session_name) = explode('://', $base_url, 2);
+     // We escape the hostname because it can be modified by a visitor.
+     if (!empty($_SERVER['HTTP_HOST'])) {
+@@ -1507,6 +1514,34 @@ function _drupal_bootstrap($phase) {
+       // Initialize configuration variables, using values from settings.php if available.
+       $conf = variable_init(isset($conf) ? $conf : array());
+ 
++      // Sanitize the destination parameter (which is often used for redirects)
++      // to prevent open redirect attacks leading to other domains. Sanitize
++      // both $_GET['destination'] and $_REQUEST['destination'] to protect code
++      // that relies on either, but do not sanitize $_POST to avoid interfering
++      // with unrelated form submissions. $_REQUEST['edit']['destination'] is
++      // also sanitized since drupal_goto() will sometimes rely on it, and
++      // other code might therefore use it too. The sanitization happens here
++      // because menu_path_is_external() requires the variable system to be
++      // available.
++      if (isset($_GET['destination']) || isset($_REQUEST['destination']) || isset($_REQUEST['edit']['destination'])) {
++        require_once './includes/menu.inc';
++        drupal_load('module', 'filter');
++        // If the destination is an external URL, remove it.
++        if (isset($_GET['destination']) && menu_path_is_external($_GET['destination'])) {
++          unset($_GET['destination']);
++          unset($_REQUEST['destination']);
++        }
++        // If there's still something in $_REQUEST['destination'] that didn't
++        // come from $_GET, check it too.
++        if (isset($_REQUEST['destination']) && (!isset($_GET['destination']) || $_REQUEST['destination'] != $_GET['destination']) && menu_path_is_external($_REQUEST['destination'])) {
++          unset($_REQUEST['destination']);
++        }
++        // Check $_REQUEST['edit']['destination'] separately.
++        if (isset($_REQUEST['edit']['destination']) && menu_path_is_external($_REQUEST['edit']['destination'])) {
++          unset($_REQUEST['edit']['destination']);
++        }
++      }
++
+       $cache_mode = variable_get('cache', CACHE_DISABLED);
+       // Get the page from the cache, unless the cache is disabled or external.
+       if ($cache_mode != CACHE_DISABLED && $cache_mode != CACHE_EXTERNAL) {
+@@ -1715,7 +1750,9 @@ function drupal_session_initialize() {
+    
+   session_set_save_handler('sess_open', 'sess_close', 'sess_read', 'sess_write', 'sess_destroy_sid', 'sess_gc');
+  
+-  if (isset($_COOKIE[session_name()])) {
++  // Use !empty() in the following check to ensure that blank session IDs
++  // are not valid.
++  if (!empty($_COOKIE[session_name()])) {
+     // If a session cookie exists, initialize the session. Otherwise the
+     // session is only started on demand in drupal_session_commit(), making
+     // anonymous users not use a session cookie unless something is stored in
+@@ -1841,7 +1878,7 @@ function drupal_save_session($status = NULL) {
+   }
+   return $save_session;
+ }
+-	
++
+ /**
+  * Returns the current bootstrap phase for this Drupal process.
+  *
+@@ -1870,7 +1907,7 @@ function drupal_valid_test_ua($user_agent) {
+ //  $key = sha1(serialize($databases) . filectime($filepath) . fileinode($filepath), TRUE);
+   $key = sha1(serialize($db_url) . filectime($filepath) . fileinode($filepath), TRUE);
+   // The HMAC must match.
+-  return $hmac == base64_encode(hash_hmac('sha1', $check_string, $key, TRUE));
++  return $hmac == drupal_base64_encode(hash_hmac('sha1', $check_string, $key, TRUE));
+ }
+ 
+ /**
+@@ -1893,7 +1930,7 @@ function drupal_generate_test_ua($prefix) {
+    // Generate a moderately secure HMAC based on the database credentials.
+    $salt = uniqid('', TRUE);
+    $check_string = $prefix . ';' . time() . ';' . $salt;
+-   return  $check_string . ';' . base64_encode(hash_hmac('sha1', $check_string, $key, TRUE));
++   return  $check_string . ';' . drupal_base64_encode(hash_hmac('sha1', $check_string, $key, TRUE));
+ }
+ 
+ /**
+@@ -1914,8 +1951,162 @@ function drupal_is_cli() {
+  */
+ function drupal_session_destroy() {
+   session_destroy();
+-  
++
+   // Workaround PHP 5.2 fatal error "Failed to initialize storage module".
+   // @see http://bugs.php.net/bug.php?id=32330
+   session_set_save_handler('sess_open', 'sess_close', 'sess_read', 'sess_write', 'sess_destroy_sid', 'sess_gc');
+ }
++
++/**
++ * Returns a URL-safe, base64 encoded string of highly randomized bytes (over the full 8-bit range).
++ *
++ * @param $byte_count
++ *   The number of random bytes to fetch and base64 encode.
++ *
++ * @return string
++ *   The base64 encoded result will have a length of up to 4 * $byte_count.
++ */
++function drupal_random_key($byte_count = 32) {
++  return drupal_base64_encode(drupal_random_bytes($byte_count));
++}
++
++/**
++ * Returns a URL-safe, base64 encoded version of the supplied string.
++ *
++ * @param $string
++ *   The string to convert to base64.
++ *
++ * @return string
++ */
++function drupal_base64_encode($string) {
++  $data = base64_encode($string);
++  // Modify the output so it's safe to use in URLs.
++  return strtr($data, array('+' => '-', '/' => '_', '=' => ''));
++}
++
++/**
++ * Returns a string of highly randomized bytes (over the full 8-bit range).
++ *
++ * This function is better than simply calling mt_rand() or any other built-in
++ * PHP function because it can return a long string of bytes (compared to < 4
++ * bytes normally from mt_rand()) and uses the best available pseudo-random
++ * source.
++ *
++ * @param $count
++ *   The number of characters (bytes) to return in the string.
++ */
++function drupal_random_bytes($count) {
++  // $random_state does not use drupal_static as it stores random bytes.
++  static $random_state, $bytes, $has_openssl, $has_hash;
++
++  $missing_bytes = $count - strlen($bytes);
++
++  if ($missing_bytes > 0) {
++    // PHP versions prior 5.3.4 experienced openssl_random_pseudo_bytes()
++    // locking on Windows and rendered it unusable.
++    if (!isset($has_openssl)) {
++      $has_openssl = version_compare(PHP_VERSION, '5.3.4', '>=') && function_exists('openssl_random_pseudo_bytes');
++    }
++
++    // openssl_random_pseudo_bytes() will find entropy in a system-dependent
++    // way.
++    if ($has_openssl) {
++      $bytes .= openssl_random_pseudo_bytes($missing_bytes);
++    }
++
++    // Else, read directly from /dev/urandom, which is available on many *nix
++    // systems and is considered cryptographically secure.
++    elseif ($fh = @fopen('/dev/urandom', 'rb')) {
++      // PHP only performs buffered reads, so in reality it will always read
++      // at least 4096 bytes. Thus, it costs nothing extra to read and store
++      // that much so as to speed any additional invocations.
++      $bytes .= fread($fh, max(4096, $missing_bytes));
++      fclose($fh);
++    }
++
++    // If we couldn't get enough entropy, this simple hash-based PRNG will
++    // generate a good set of pseudo-random bytes on any system.
++    // Note that it may be important that our $random_state is passed
++    // through hash() prior to being rolled into $output, that the two hash()
++    // invocations are different, and that the extra input into the first one -
++    // the microtime() - is prepended rather than appended. This is to avoid
++    // directly leaking $random_state via the $output stream, which could
++    // allow for trivial prediction of further "random" numbers.
++    if (strlen($bytes) < $count) {
++      // Initialize on the first call. The contents of $_SERVER includes a mix of
++      // user-specific and system information that varies a little with each page.
++      if (!isset($random_state)) {
++        $random_state = print_r($_SERVER, TRUE);
++        if (function_exists('getmypid')) {
++          // Further initialize with the somewhat random PHP process ID.
++          $random_state .= getmypid();
++        }
++        // hash() is only available in PHP 5.1.2+ or via PECL.
++        $has_hash = function_exists('hash') && in_array('sha256', hash_algos());
++        $bytes = '';
++      }
++
++      if ($has_hash) {
++        do {
++          $random_state = hash('sha256', microtime() . mt_rand() . $random_state);
++          $bytes .= hash('sha256', mt_rand() . $random_state, TRUE);
++        } while (strlen($bytes) < $count);
++      }
++      else {
++        do {
++          $random_state = md5(microtime() . mt_rand() . $random_state);
++          $bytes .= pack("H*", md5(mt_rand() . $random_state));
++        } while (strlen($bytes) < $count);
++      }
++    }
++  }
++  $output = substr($bytes, 0, $count);
++  $bytes = substr($bytes, $count);
++  return $output;
++}
++
++/**
++ * Calculates a hexadecimal encoded sha-1 hmac.
++ *
++ * @param string $data
++ *   String to be validated with the hmac.
++ * @param string $key
++ *   A secret string key.
++ *
++ * See RFC2104 (http://www.ietf.org/rfc/rfc2104.txt). Note, the result of this
++ * must be identical to using hash_hmac('sha1', $data, $key);  We don't use
++ * that function since PHP can be missing it if it was compiled with the
++ * --disable-hash switch.
++ *
++ * @return string
++ *   A hexadecimal encoded sha-1 hmac.
++ */
++function drupal_hash_hmac_sha1($data, $key) {
++  // Keys longer than the 64 byte block size must be hashed first.
++  if (strlen($key) > 64) {
++    $key = pack("H*", sha1($key));
++  }
++  return sha1((str_pad($key, 64, chr(0x00)) ^ (str_repeat(chr(0x5c), 64))) . pack("H*", sha1((str_pad($key, 64, chr(0x00)) ^ (str_repeat(chr(0x36), 64))) . $data)));
++}
++
++/**
++ * Calculates a base-64 encoded, URL-safe sha-1 hmac.
++ *
++ * @param string $data
++ *   String to be validated with the hmac.
++ * @param string $key
++ *   A secret string key.
++ *
++ * @return string
++ *   A base-64 encoded sha-1 hmac, with + replaced with -, / with _ and
++ *   any = padding characters removed.
++ */
++function drupal_hmac_base64($data, $key) {
++  // Casting $data and $key to strings here is necessary to avoid empty string
++  // results of the hash function if they are not scalar values. As this
++  // function is used in security-critical contexts like token validation it is
++  // important that it never returns an empty string.
++  $hmac = base64_encode(pack("H*", drupal_hash_hmac_sha1((string) $data, (string) $key)));
++  // Modify the hmac so it's safe to use in URLs.
++  return strtr($hmac, array('+' => '-', '/' => '_', '=' => ''));
++}
+diff --git a/includes/common.inc b/includes/common.inc
+index fbd6827..64a185d 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -169,7 +169,7 @@ function drupal_final_markup($content) {
+  * Add a feed URL for the current page.
+  *
+  * @param $url
+- *   A url for the feed.
++ *   A URL for the feed.
+  * @param $title
+  *   The title of the feed.
+  */
+@@ -289,14 +289,16 @@ function drupal_get_destination() {
+  * statement in your menu callback.
+  *
+  * @param $path
+- *   A Drupal path or a full URL.
++ *   (optional) A Drupal path or a full URL, which will be passed to url() to
++ *   compute the redirect for the URL.
+  * @param $query
+- *   A URL-encoded query string to append to the link, or an array of query
+- *   key/value-pairs without any URL-encoding. Passed to url().
++ *   (optional) A URL-encoded query string to append to the link, or an array of
++ *   query key/value-pairs without any URL-encoding. Passed to url().
+  * @param $fragment
+- *   A destination fragment identifier (named anchor).
++ *   (optional) A destination fragment identifier (named anchor).
+  * @param $http_response_code
+- *   Valid values for an actual "goto" as per RFC 2616 section 10.3 are:
++ *   (optional) The HTTP status code to use for the redirection, defaults to
++ *   302. Valid values for an actual "goto" as per RFC 2616 section 10.3 are:
+  *   - 301 Moved Permanently (the recommended value for most redirects)
+  *   - 302 Found (default in Drupal and PHP, sometimes used for spamming search
+  *         engines)
+@@ -321,7 +323,7 @@ function drupal_goto($path = '', $query = NULL, $fragment = NULL, $http_response
+   if ($destination) {
+     // Do not redirect to an absolute URL originating from user input.
+     $colonpos = strpos($destination, ':');
+-    $absolute = ($colonpos !== FALSE && !preg_match('![/?#]!', substr($destination, 0, $colonpos)));
++    $absolute = strpos($destination, '//') === 0 || ($colonpos !== FALSE && !preg_match('![/?#]!', substr($destination, 0, $colonpos)));
+     if (!$absolute) {
+       extract(parse_url(urldecode($destination)));
+     }
+@@ -370,7 +372,10 @@ function drupal_not_found() {
+ 
+   // Keep old path for reference, and to allow forms to redirect to it.
+   if (!isset($_REQUEST['destination'])) {
+-    $_REQUEST['destination'] = $_GET['q'];
++    // Make sure that the current path is not interpreted as external URL.
++    if (!menu_path_is_external($_GET['q'])) {
++      $_REQUEST['destination'] = $_GET['q'];
++    }
+   }
+ 
+   $path = drupal_get_normal_path(variable_get('site_404', ''));
+@@ -400,7 +405,10 @@ function drupal_access_denied() {
+ 
+   // Keep old path for reference, and to allow forms to redirect to it.
+   if (!isset($_REQUEST['destination'])) {
+-    $_REQUEST['destination'] = $_GET['q'];
++    // Make sure that the current path is not interpreted as external URL.
++    if (!menu_path_is_external($_GET['q'])) {
++      $_REQUEST['destination'] = $_GET['q'];
++    }
+   }
+ 
+   $path = drupal_get_normal_path(variable_get('site_403', ''));
+@@ -524,7 +532,7 @@ function drupal_http_request($url, $headers = array(), $method = 'GET', $data =
+     $defaults['Content-Length'] = 'Content-Length: '. $content_length;
+   }
+ 
+-  // If the server url has a user then attempt to use basic authentication
++  // If the server URL has a user then attempt to use basic authentication
+   if (isset($uri['user'])) {
+     $defaults['Authorization'] = 'Authorization: Basic '. base64_encode($uri['user'] . (!empty($uri['pass']) ? ":". $uri['pass'] : ''));
+   }
+@@ -982,7 +990,7 @@ function t($string, $args = array(), $langcode = NULL) {
+ /**
+  * Verifies the syntax of the given e-mail address.
+  *
+- * See RFC 2822 for details.
++ * See @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink for details.
+  *
+  * @param $mail
+  *   A string containing an e-mail address.
+@@ -1416,8 +1424,9 @@ function format_date($timestamp, $type = 'medium', $format = '', $timezone = NUL
+  * alternative than url().
+  *
+  * @param $path
+- *   The internal path or external URL being linked to, such as "node/34" or
+- *   "http://example.com/foo". A few notes:
++ *   (optional) The internal path or external URL being linked to, such as
++ *   "node/34" or "http://example.com/foo". The default value is equivalent to
++ *   passing in '<front>'. A few notes:
+  *   - If you provide a full URL, it will be considered an external URL.
+  *   - If you provide only the path (e.g. "node/34"), it will be
+  *     considered an internal link. In this case, it should be a system URL,
+@@ -1433,7 +1442,8 @@ function format_date($timestamp, $type = 'medium', $format = '', $timezone = NUL
+  *     include them in $path, or use $options['query'] to let this function
+  *     URL encode them.
+  * @param $options
+- *   An associative array of additional options, with the following elements:
++ *   (optional) An associative array of additional options, with the following
++ *   elements:
+  *   - 'query': A URL-encoded query string to append to the link, or an array of
+  *     query key/value-pairs without any URL-encoding.
+  *   - 'fragment': A fragment identifier (named anchor) to append to the URL.
+@@ -1462,12 +1472,20 @@ function url($path = NULL, $options = array()) {
+     'alias' => FALSE,
+     'prefix' => ''
+   );
++  // A duplicate of the code from menu_path_is_external() to avoid needing
++  // another function call, since performance inside url() is critical.
+   if (!isset($options['external'])) {
+-    // Return an external link if $path contains an allowed absolute URL.
+-    // Only call the slow filter_xss_bad_protocol if $path contains a ':' before
+-    // any / ? or #.
++    // Return an external link if $path contains an allowed absolute URL. Avoid
++    // calling filter_xss_bad_protocol() if there is any slash (/), hash (#) or
++    // question_mark (?) before the colon (:) occurrence - if any - as this
++    // would clearly mean it is not a URL. If the path starts with 2 slashes
++    // then it is always considered an external URL without an explicit protocol
++    // part.
+     $colonpos = strpos($path, ':');
+-    $options['external'] = ($colonpos !== FALSE && !preg_match('![/?#]!', substr($path, 0, $colonpos)) && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
++    $options['external'] = (strpos($path, '//') === 0)
++      || ($colonpos !== FALSE
++        && !preg_match('![/?#]!', substr($path, 0, $colonpos))
++        && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
+   }
+ 
+   // May need language dependent rewriting if language.inc is present.
+@@ -1497,6 +1515,11 @@ function url($path = NULL, $options = array()) {
+     return $path . $options['fragment'];
+   }
+ 
++  // Strip leading slashes from internal paths to prevent them becoming external
++  // URLs without protocol. /example.com should not be turned into
++  // //example.com.
++  $path = ltrim($path, '/');
++
+   global $base_url;
+   static $script;
+ 
+@@ -1585,6 +1608,14 @@ function drupal_attributes($attributes = array()) {
+  * internal links output by modules should be generated by this function if
+  * possible.
+  *
++ * However, for links enclosed in translatable text you should use t() and
++ * embed the HTML anchor tag directly in the translated string. For example:
++ * @code
++ * t('Visit the <a href="@url">settings</a> page', array('@url' => url('admin')));
++ * @endcode
++ * This keeps the context of the link title ('settings' in the example) for
++ * translators.
++ *
+  * @param $text
+  *   The link text for the anchor tag.
+  * @param $path
+@@ -2590,7 +2621,7 @@ function drupal_urlencode($text) {
+  */
+ function drupal_get_private_key() {
+   if (!($key = variable_get('drupal_private_key', 0))) {
+-    $key = md5(uniqid(mt_rand(), true)) . md5(uniqid(mt_rand(), true));
++    $key = drupal_random_key();
+     variable_set('drupal_private_key', $key);
+   }
+   return $key;
+@@ -2622,7 +2653,7 @@ function drupal_get_token($value = '') {
+  */
+ function drupal_valid_token($token, $value = '', $skip_anonymous = FALSE) {
+   global $user;
+-  return (($skip_anonymous && $user->uid == 0) || ($token == md5(session_id() . $value . variable_get('drupal_private_key', ''))));
++  return (($skip_anonymous && $user->uid == 0) || ($token === md5(session_id() . $value . variable_get('drupal_private_key', ''))));
+ }
+ 
+ /**
+@@ -2690,6 +2721,10 @@ function _drupal_bootstrap_full() {
+ 
+   // Load all enabled modules
+   module_load_all();
++  // Ensure mt_rand is reseeded, to prevent random values from one page load
++  // being exploited to predict random values in subsequent page loads.
++  $seed = unpack("L", drupal_random_bytes(4));
++  mt_srand($seed[1]);
+   // Let all modules take action before menu system handles the request
+   // We do not want this while running update.php.
+   if (!defined('MAINTENANCE_MODE') || MAINTENANCE_MODE != 'update') {
+@@ -3822,7 +3857,7 @@ function drupal_flush_all_caches() {
+  * Changes the character added to all css/js files as dummy query-string,
+  * so that all browsers are forced to reload fresh files. We keep
+  * 20 characters history (FIFO) to avoid repeats, but only the first
+- * (newest) character is actually used on urls, to keep them short.
++ * (newest) character is actually used on URLs, to keep them short.
+  * This is also called from update.php.
+  */
+ function _drupal_flush_css_js() {
+diff --git a/includes/database.mysql.inc b/includes/database.mysql.inc
+index 91cc8eb..4ff53e1 100644
+--- a/includes/database.mysql.inc
++++ b/includes/database.mysql.inc
+@@ -55,9 +55,9 @@ function db_connect($url) {
+     _db_error_page('Unable to use the MySQL database because the MySQL extension for PHP is not installed. Check your <code>php.ini</code> to see how you can enable it.');
+   }
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   $url['user'] = urldecode($url['user']);
+-  // Test if database url has a password.
++  // Test if database URL has a password.
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+   $url['path'] = urldecode($url['path']);
+diff --git a/includes/database.mysqli.inc b/includes/database.mysqli.inc
+index 4f6d8da..2ee710b 100644
+--- a/includes/database.mysqli.inc
++++ b/includes/database.mysqli.inc
+@@ -61,9 +61,9 @@ function db_connect($url) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   $url['user'] = urldecode($url['user']);
+-  // Test if database url has a password.
++  // Test if database URL has a password.
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+   $url['path'] = urldecode($url['path']);
+diff --git a/includes/database.pgsql.inc b/includes/database.pgsql.inc
+index 0a06d7d..161de08 100644
+--- a/includes/database.pgsql.inc
++++ b/includes/database.pgsql.inc
+@@ -52,7 +52,7 @@ function db_connect($url) {
+   $url = parse_url($url);
+   $conn_string = '';
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   if (isset($url['user'])) {
+     $conn_string .= ' user='. urldecode($url['user']);
+   }
+diff --git a/includes/file.inc b/includes/file.inc
+index 630e433..473fbae 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -172,20 +172,81 @@ function file_check_directory(&$directory, $mode = 0, $form_item = NULL) {
+     }
+   }
+ 
+-  if ((file_directory_path() == $directory || file_directory_temp() == $directory) && !is_file("$directory/.htaccess")) {
+-    $htaccess_lines = "SetHandler Drupal_Security_Do_Not_Remove_See_SA_2006_006\nOptions None\nOptions +FollowSymLinks";
++  if (file_directory_path() == $directory || file_directory_temp() == $directory) {
++    file_create_htaccess($directory, $form_item);
++  }
++
++  return TRUE;
++}
++
++/**
++ * Creates a .htaccess file in the given directory.
++ *
++ * @param $directory
++ *   The directory.
++ * @param $form_item
++ *   An optional string containing the name of a form item that any errors
++ *   will be attached to. Useful when called from file_check_directory() to
++ *   validate a directory path entered as a form value. An error will
++ *   consequently prevent form submit handlers from running, and instead
++ *   display the form along with the error messages.
++ * @param $force_overwrite
++ *   Set to TRUE to attempt to overwrite the existing .htaccess file if one is
++ *   already present. Defaults to FALSE.
++ */
++function file_create_htaccess($directory, $form_item = NULL, $force_overwrite = FALSE) {
++  if (!is_file("$directory/.htaccess") || $force_overwrite) {
++    $htaccess_lines = file_htaccess_lines();
+     if (($fp = fopen("$directory/.htaccess", 'w')) && fputs($fp, $htaccess_lines)) {
+       fclose($fp);
+       chmod($directory .'/.htaccess', 0664);
+     }
+     else {
+       $variables = array('%directory' => $directory, '!htaccess' => '<br />'. nl2br(check_plain($htaccess_lines)));
+-      form_set_error($form_item, t("Security warning: Couldn't write .htaccess file. Please create a .htaccess file in your %directory directory which contains the following lines: <code>!htaccess</code>", $variables));
++      if ($form_item) {
++        form_set_error($form_item, t("Security warning: Couldn't write .htaccess file. Please create a .htaccess file in your %directory directory which contains the following lines: <code>!htaccess</code>", $variables));
++      }
+       watchdog('security', "Security warning: Couldn't write .htaccess file. Please create a .htaccess file in your %directory directory which contains the following lines: <code>!htaccess</code>", $variables, WATCHDOG_ERROR);
+     }
+   }
++}
+ 
+-  return TRUE;
++/**
++ * Returns the standard .htaccess lines that Drupal writes to file directories.
++ *
++ * @return
++ *   A string representing the desired contents of the .htaccess file.
++ *
++ * @see file_create_htaccess()
++ */
++function file_htaccess_lines() {
++  $lines = <<<EOF
++# Turn off all options we don't need.
++Options None
++Options +FollowSymLinks
++
++# Set the catch-all handler to prevent scripts from being executed.
++SetHandler Drupal_Security_Do_Not_Remove_See_SA_2006_006
++<Files *>
++  # Override the handler again if we're run later in the evaluation list.
++  SetHandler Drupal_Security_Do_Not_Remove_See_SA_2013_003
++</Files>
++
++# If we know how to do it safely, disable the PHP engine entirely.
++<IfModule mod_php5.c>
++  php_flag engine off
++</IfModule>
++# PHP 4, Apache 1.
++<IfModule mod_php4.c>
++  php_flag engine off
++</IfModule>
++# PHP 4, Apache 2.
++<IfModule sapi_apache2.c>
++  php_flag engine off
++</IfModule>
++EOF;
++
++  return $lines;
+ }
+ 
+ /**
+@@ -872,7 +933,7 @@ function file_save_data($data, $dest, $replace = FILE_EXISTS_RENAME) {
+ /**
+  * Set the status of a file.
+  *
+- * @param $file 
++ * @param $file
+  *   A Drupal file object.
+  * @param $status
+  *   A status value to set the file to. One of:
+@@ -901,9 +962,9 @@ function file_transfer($source, $headers) {
+   if (ob_get_level()) {
+     ob_end_clean();
+   }
+-  
++
+   // IE cannot download private files because it cannot store files downloaded
+-  // over https in the browser cache. The problem can be solved by sending
++  // over HTTPS in the browser cache. The problem can be solved by sending
+   // custom headers to IE. See http://support.microsoft.com/kb/323308/en-us
+   if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on')) {
+     drupal_set_header('Cache-Control: private');
+@@ -951,17 +1012,68 @@ function file_download() {
+   }
+ 
+   if (file_exists(file_create_path($filepath))) {
+-    $headers = module_invoke_all('file_download', $filepath);
+-    if (in_array(-1, $headers)) {
+-      return drupal_access_denied();
+-    }
++    $headers = file_download_headers($filepath);
+     if (count($headers)) {
+       file_transfer($filepath, $headers);
+     }
++    else {
++      return drupal_access_denied();
++    }
+   }
+   return drupal_not_found();
+ }
+ 
++/**
++ * Retrieves headers for a private file download.
++ *
++ * Calls all module implementations of hook_file_download() to retrieve headers
++ * for files by the module that originally provided the file. The presence of
++ * returned headers indicates the current user has access to the file.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   If access is allowed, headers for the file, suitable for passing to
++ *   file_transfer(). If access is not allowed, an empty array will be returned.
++ *
++ * @see file_transfer()
++ * @see file_download_access()
++ * @see hook_file_downlaod()
++ */
++function file_download_headers($filepath) {
++  $headers = module_invoke_all('file_download', $filepath);
++  if (in_array(-1, $headers)) {
++    // Throw away the headers received so far.
++    $headers = array();
++  }
++  return $headers;
++}
++
++/**
++ * Checks that the current user has access to a particular file.
++ *
++ * The return value of this function hinges on the return value from
++ * file_download_headers(), which is the function responsible for collecting
++ * access information through hook_file_download().
++ *
++ * If immediately transferring the file to the browser and the headers will
++ * need to be retrieved, the return value of file_download_headers() should be
++ * used to determine access directly, so that access checks will not be run
++ * twice.
++ *
++ * @param $filepath
++ *   The path for the file whose headers should be retrieved.
++ *
++ * @return
++ *   Boolean TRUE if access is allowed. FALSE if access is not allowed.
++ *
++ * @see file_download_headers()
++ * @see hook_file_download()
++ */
++function file_download_access($filepath) {
++  return count(file_download_headers($filepath)) > 0;
++}
+ 
+ /**
+  * Finds all files that match a given mask in a given directory.
+diff --git a/includes/form.inc b/includes/form.inc
+index 5a9940b..e5bae60 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -41,8 +41,8 @@
+  *
+  * For information on the format of the structured arrays used to define forms,
+  * and more detailed explanations of the Form API workflow, see the
+- * @link http://api.drupal.org/api/file/developer/topics/forms_api_reference.html/6 reference @endlink
+- * and the @link http://drupal.org/node/204270 Form API guide. @endlink
++ * @link forms_api_reference.html reference @endlink and the
++ * @link http://drupal.org/node/204270 Form API guide. @endlink
+  */
+ 
+ /**
+@@ -101,7 +101,7 @@ function drupal_get_form($form_id) {
+       array_unshift($args_temp, $form_id);
+ 
+       $form = call_user_func_array('drupal_retrieve_form', $args_temp);
+-      $form_build_id = 'form-'. md5(uniqid(mt_rand(), TRUE));
++      $form_build_id = 'form-'. drupal_random_key();
+       $form['#build_id'] = $form_build_id;
+       drupal_prepare_form($form_id, $form, $form_state);
+       // Store a copy of the unprocessed form for caching and indicate that it
+@@ -196,7 +196,7 @@ function drupal_rebuild_form($form_id, &$form_state, $args, $form_build_id = NUL
+ 
+   if (!isset($form_build_id)) {
+     // We need a new build_id for the new version of the form.
+-    $form_build_id = 'form-'. md5(uniqid(mt_rand(), TRUE));
++    $form_build_id = 'form-'. drupal_random_key();
+   }
+   $form['#build_id'] = $form_build_id;
+   drupal_prepare_form($form_id, $form, $form_state);
+@@ -226,10 +226,25 @@ function form_set_cache($form_build_id, $form, $form_state) {
+   if ($user->uid) {
+     $form['#cache_token'] = drupal_get_token();
+   }
++  elseif (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && drupal_page_is_cacheable()) {
++    $form['#immutable'] = TRUE;
++  }
++  $form_build_id_old = $form_build_id;
++  $form_build_id = form_build_id_map($form_build_id_old);
+   cache_set('form_'. $form_build_id, $form, 'cache_form', time() + $expire);
+   if (!empty($form_state['storage'])) {
+     cache_set('storage_'. $form_build_id, $form_state['storage'], 'cache_form', time() + $expire);
+   }
++
++  // If form_set_cache is called in the context of an ahah handler inform the
++  // client about the changed form build_id via the X-Drupal-Build-Id HTTP
++  // header.
++  if (!empty($_SERVER['HTTP_X_DRUPAL_ACCEPT_BUILD_ID']) &&
++    !empty($_POST['form_build_id']) &&
++    $_POST['form_build_id'] == $form_build_id_old &&
++    $form_build_id_old != $form_build_id) {
++    drupal_set_header('X-Drupal-Build-Id: ' . $form_build_id);
++  }
+ }
+ 
+ /**
+@@ -243,12 +258,36 @@ function form_get_cache($form_build_id, &$form_state) {
+       if ($cached = cache_get('storage_'. $form_build_id, 'cache_form')) {
+         $form_state['storage'] = $cached->data;
+       }
++
++      // Generate a new #build_id if the cached form was rendered on a cacheable
++      // page.
++      if (!empty($form['#immutable'])) {
++        $form['#build_id'] = 'form-' . drupal_random_key();
++        $form['form_build_id']['#value'] = $form['#build_id'];
++        $form['form_build_id']['#id'] = $form['#build_id'];
++        unset($form['#immutable']);
++
++        form_build_id_map($form_build_id, $form['#build_id']);
++      }
+       return $form;
+     }
+   }
+ }
+ 
+ /**
++ * Maintain a map of immutable form_build_ids to cloned form.
++ */
++function form_build_id_map($form_build_id, $new_build_id = NULL) {
++  static $build_id_map = array();
++
++  if (isset($new_build_id) && isset($form_build_id)) {
++    $build_id_map[$form_build_id] = $new_build_id;
++  }
++
++  return isset($build_id_map[$form_build_id]) ? $build_id_map[$form_build_id] : $form_build_id;
++}
++
++/**
+  * Retrieves, populates, and processes a form.
+  *
+  * This function allows you to supply values for form elements and submit a
+@@ -302,7 +341,7 @@ function drupal_execute($form_id, &$form_state) {
+ 
+   // Make sure $form_state is passed around by reference.
+   $args[1] = &$form_state;
+-  
++
+   $form = call_user_func_array('drupal_retrieve_form', $args);
+   $form['#post'] = $form_state['values'];
+ 
+@@ -590,6 +629,12 @@ function drupal_validate_form($form_id, $form, &$form_state) {
+     if (!drupal_valid_token($form_state['values']['form_token'], $form['#token'])) {
+       // Setting this error will cause the form to fail validation.
+       form_set_error('form_token', t('Validation error, please try again. If this error persists, please contact the site administrator.'));
++
++      // Stop here and don't run any further validation handlers, because they
++      // could invoke non-safe operations which opens the door for CSRF
++      // vulnerabilities.
++      $validated_forms[$form_id] = TRUE;
++      return;
+     }
+   }
+ 
+@@ -773,8 +818,8 @@ function form_execute_handlers($type, &$form, &$form_state) {
+ 
+   foreach ($handlers as $function) {
+     if (function_exists($function))  {
+-      // Check to see if a previous _submit handler has set a batch, but 
+-      // make sure we do not react to a batch that is already being processed 
++      // Check to see if a previous _submit handler has set a batch, but
++      // make sure we do not react to a batch that is already being processed
+       // (for instance if a batch operation performs a drupal_execute()).
+       if ($type == 'submit' && ($batch =& batch_get()) && !isset($batch['current_set'])) {
+         // Some previous _submit handler has set a batch. We store the call
+@@ -1439,7 +1484,7 @@ function form_select_options($element, $choices = NULL) {
+   $options = '';
+   foreach ($choices as $key => $choice) {
+     if (is_array($choice)) {
+-      $options .= '<optgroup label="'. $key .'">';
++      $options .= '<optgroup label="'. check_plain($key) .'">';
+       $options .= form_select_options($element, $choice);
+       $options .= '</optgroup>';
+     }
+@@ -1792,6 +1837,8 @@ function expand_radios($element) {
+  *   drupal_add_js.
+  */
+ function form_expand_ahah($element) {
++  global $user;
++
+   static $js_added = array();
+   // Add a reasonable default event handler if none specified.
+   if (isset($element['#ahah']['path']) && !isset($element['#ahah']['event'])) {
+@@ -1838,11 +1885,16 @@ function form_expand_ahah($element) {
+       'button'   => isset($element['#executes_submit_callback']) ? array($element['#name'] => $element['#value']) : FALSE,
+     );
+ 
++    // If page caching is active, indicate that this form is immutable.
++    if (variable_get('cache', CACHE_DISABLED) != CACHE_DISABLED && !$user->uid && drupal_page_is_cacheable()) {
++      $ahah_binding['immutable'] = TRUE;
++    }
++
+     // Convert a simple #ahah[progress] type string into an array.
+     if (is_string($ahah_binding['progress'])) {
+       $ahah_binding['progress'] = array('type' => $ahah_binding['progress']);
+     }
+-    // Change progress path to a full url.
++    // Change progress path to a full URL.
+     if (isset($ahah_binding['progress']['path'])) {
+       $ahah_binding['progress']['url'] = url($ahah_binding['progress']['path']);
+     }
+@@ -2425,8 +2477,8 @@ function form_clean_id($id = NULL, $flush = FALSE) {
+  *   - 'init_message': Message displayed while the processing is initialized.
+  *     Defaults to t('Initializing.').
+  *   - 'progress_message': Message displayed while processing the batch.
+- *     Available placeholders are @current, @remaining, @total, @percentage,
+- *     @estimate and @elapsed. Defaults to t('Completed @current of @total.').
++ *     Available placeholders are @current, @remaining, @total, and
++ *     @percentage. Defaults to t('Completed @current of @total.').
+  *   - 'error_message': Message displayed if an error occurred while processing
+  *     the batch. Defaults to t('An error has occurred.').
+  *   - 'finished': Name of a function to be executed after the batch has
+diff --git a/includes/install.mysql.inc b/includes/install.mysql.inc
+index e544294..73aa365 100644
+--- a/includes/install.mysql.inc
++++ b/includes/install.mysql.inc
+@@ -26,7 +26,7 @@ function drupal_test_mysql($url, &$success) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string.
++  // Decode urlencoded information in the db connection string.
+   $url['user'] = urldecode($url['user']);
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+diff --git a/includes/install.mysqli.inc b/includes/install.mysqli.inc
+index 8920d01..0080804 100644
+--- a/includes/install.mysqli.inc
++++ b/includes/install.mysqli.inc
+@@ -26,7 +26,7 @@ function drupal_test_mysqli($url, &$success) {
+ 
+   $url = parse_url($url);
+ 
+-  // Decode url-encoded information in the db connection string.
++  // Decode urlencoded information in the db connection string.
+   $url['user'] = urldecode($url['user']);
+   $url['pass'] = isset($url['pass']) ? urldecode($url['pass']) : '';
+   $url['host'] = urldecode($url['host']);
+diff --git a/includes/install.pgsql.inc b/includes/install.pgsql.inc
+index fde97a3..5c2c21d 100644
+--- a/includes/install.pgsql.inc
++++ b/includes/install.pgsql.inc
+@@ -27,7 +27,7 @@ function drupal_test_pgsql($url, &$success) {
+   $url = parse_url($url);
+   $conn_string = '';
+ 
+-  // Decode url-encoded information in the db connection string
++  // Decode urlencoded information in the db connection string
+   if (isset($url['user'])) {
+     $conn_string .= ' user='. urldecode($url['user']);
+   }
+diff --git a/includes/mail.inc b/includes/mail.inc
+index 92540e2..12f08bc 100644
+--- a/includes/mail.inc
++++ b/includes/mail.inc
+@@ -59,11 +59,13 @@
+  *   will be {$module}_{$key}.
+  * @param $to
+  *   The e-mail address or addresses where the message will be sent to. The
+- *   formatting of this string must comply with RFC 2822. Some examples are:
+- *    user@example.com
+- *    user@example.com, anotheruser@example.com
+- *    User <user@example.com>
+- *    User <user@example.com>, Another User <anotheruser@example.com>
++ *   formatting of this string must comply with
++ *   @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *   Some examples are:
++ *   - user@example.com
++ *   - user@example.com, anotheruser@example.com
++ *   - User <user@example.com>
++ *   - User <user@example.com>, Another User <anotheruser@example.com>
+  * @param $language
+  *   Language object to use to compose the e-mail.
+  * @param $params
+@@ -72,6 +74,7 @@
+  *   Sets From to this value, if given.
+  * @param $send
+  *   Send the message directly, without calling drupal_mail_send() manually.
++ *
+  * @return
+  *   The $message array structure containing all details of the
+  *   message. If already sent ($send = TRUE), then the 'result' element
+@@ -145,26 +148,24 @@ function drupal_mail($module, $key, $to, $language, $params = array(), $from = N
+  * how $message is composed.
+  *
+  * @param $message
+- *  Message array with at least the following elements:
+- *   - id
+- *      A unique identifier of the e-mail type. Examples: 'contact_user_copy',
+- *      'user_password_reset'.
+- *   - to
+- *      The mail address or addresses where the message will be sent to. The
+- *      formatting of this string must comply with RFC 2822. Some examples are:
+- *       user@example.com
+- *       user@example.com, anotheruser@example.com
+- *       User <user@example.com>
+- *       User <user@example.com>, Another User <anotheruser@example.com>
+- *   - subject
+- *      Subject of the e-mail to be sent. This must not contain any newline
+- *      characters, or the mail may not be sent properly.
+- *   - body
+- *      Message to be sent. Accepts both CRLF and LF line-endings.
+- *      E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
+- *      smart plain text wrapping.
+- *   - headers
+- *      Associative array containing all mail headers.
++ *   Message array with at least the following elements:
++ *   - id: A unique identifier of the e-mail type. Examples:
++ *     'contact_user_copy', 'user_password_reset'.
++ *   - to: The mail address or addresses where the message will be sent to. The
++ *     formatting of this string must comply with
++ *     @link http://tools.ietf.org/html/rfc5322 RFC 5322 @endlink.
++ *     Some examples are:
++ *     - user@example.com
++ *     - user@example.com, anotheruser@example.com
++ *     - User <user@example.com>
++ *     - User <user@example.com>, Another User <anotheruser@example.com>
++ *   - subject: Subject of the e-mail to be sent. This must not contain any
++ *     newline characters, or the mail may not be sent properly.
++ *   - body: Message to be sent. Accepts both CRLF and LF line-endings.
++ *     E-mail bodies must be wrapped. You can use drupal_wrap_mail() for
++ *     smart plain text wrapping.
++ *   - headers: Associative array containing all mail headers.
++ *
+  * @return
+  *   Returns TRUE if the mail was successfully accepted for delivery,
+  *   FALSE otherwise.
+@@ -254,6 +255,7 @@ function drupal_wrap_mail($text, $indent = '') {
+  * @param $allowed_tags (optional)
+  *   If supplied, a list of tags that will be transformed. If omitted, all
+  *   all supported tags are transformed.
++ *
+  * @return
+  *   The transformed string.
+  */
+diff --git a/includes/menu.inc b/includes/menu.inc
+index 0d377d0..ec5a2d8 100644
+--- a/includes/menu.inc
++++ b/includes/menu.inc
+@@ -2486,8 +2486,16 @@ function _menu_router_build($callbacks) {
+  * Returns TRUE if a path is external (e.g. http://example.com).
+  */
+ function menu_path_is_external($path) {
++  // Avoid calling filter_xss_bad_protocol() if there is any slash (/),
++  // hash (#) or question_mark (?) before the colon (:) occurrence - if any - as
++  // this would clearly mean it is not a URL. If the path starts with 2 slashes
++  // then it is always considered an external URL without an explicit protocol
++  // part.
+   $colonpos = strpos($path, ':');
+-  return $colonpos !== FALSE && !preg_match('![/?#]!', substr($path, 0, $colonpos)) && filter_xss_bad_protocol($path, FALSE) == check_plain($path);
++  return (strpos($path, '//') === 0)
++    || ($colonpos !== FALSE
++      && !preg_match('![/?#]!', substr($path, 0, $colonpos))
++      && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
+ }
+ 
+ /**
+diff --git a/includes/session.inc b/includes/session.inc
+index df4719c..2786938 100644
+--- a/includes/session.inc
++++ b/includes/session.inc
+@@ -42,7 +42,7 @@ function sess_read($key) {
+   register_shutdown_function('session_write_close');
+ 
+   // Handle the case of first time visitors and clients that don't store cookies (eg. web crawlers).
+-  if (!isset($_COOKIE[session_name()])) {
++  if (empty($key) || !isset($_COOKIE[session_name()])) {
+     $user = drupal_anonymous_user();
+     return '';
+   }
+diff --git a/includes/theme.inc b/includes/theme.inc
+index f9fe856..0b25f71 100644
+--- a/includes/theme.inc
++++ b/includes/theme.inc
+@@ -1592,7 +1592,7 @@ function theme_more_help_link($url) {
+  *
+  * @see theme_feed_icon()
+  * @param $url
+- *   The url of the feed.
++ *   The URL of the feed.
+  */
+ function theme_xml_icon($url) {
+   if ($image = theme('image', 'misc/xml.png', t('XML feed'), t('XML feed'))) {
+@@ -1604,7 +1604,7 @@ function theme_xml_icon($url) {
+  * Return code that emits an feed icon.
+  *
+  * @param $url
+- *   The url of the feed.
++ *   The URL of the feed.
+  * @param $title
+  *   A descriptive title of the feed.
+   */
+@@ -1618,7 +1618,7 @@ function theme_feed_icon($url, $title) {
+  * Returns code that emits the 'more' link used on blocks.
+  *
+  * @param $url
+- *   The url of the main page
++ *   The URL of the main page
+  * @param $title
+  *   A descriptive verb for the link, like 'Read more'
+  */
+diff --git a/includes/xmlrpc.inc b/includes/xmlrpc.inc
+index 13ebf09..9236d88 100644
+--- a/includes/xmlrpc.inc
++++ b/includes/xmlrpc.inc
+@@ -163,7 +163,38 @@ function xmlrpc_message_parse(&$xmlrpc_message) {
+   xml_set_element_handler($xmlrpc_message->_parser, 'xmlrpc_message_tag_open', 'xmlrpc_message_tag_close');
+   xml_set_character_data_handler($xmlrpc_message->_parser, 'xmlrpc_message_cdata');
+   xmlrpc_message_set($xmlrpc_message);
+-  if (!xml_parse($xmlrpc_message->_parser, $xmlrpc_message->message)) {
++
++  // Strip XML declaration.
++  $header = preg_replace('/<\?xml.*?\?'.'>/s', '', substr($xmlrpc_message->message, 0, 100), 1);
++  $xml = trim(substr_replace($xmlrpc_message->message, $header, 0, 100));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Strip DTD.
++  $header = preg_replace('/^<!DOCTYPE[^>]*+>/i', '', substr($xml, 0, 200), 1);
++  $xml = trim(substr_replace($xml, $header, 0, 200));
++  if ($xml == '') {
++    return FALSE;
++  }
++  // Confirm the XML now starts with a valid root tag. A root tag can end in [> \t\r\n]
++  $root_tag = substr($xml, 0, strcspn(substr($xml, 0, 20), "> \t\r\n"));
++  // Reject a second DTD.
++  if (strtoupper($root_tag) == '<!DOCTYPE') {
++    return FALSE;
++  }
++  if (!in_array($root_tag, array('<methodCall', '<methodResponse', '<fault'))) {
++    return FALSE;
++  }
++  // Skip parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('xmlrpc_message_maximum_tag_count', 30000)) {
++    return FALSE;
++  }
++
++  if (!xml_parse($xmlrpc_message->_parser, $xml)) {
+     return FALSE;
+   }
+   xml_parser_free($xmlrpc_message->_parser);
+diff --git a/install.php b/install.php
+index beb3fcb..11cfe8a 100644
+--- a/install.php
++++ b/install.php
+@@ -147,6 +147,16 @@ function install_main() {
+ 
+     // Install system.module.
+     drupal_install_system();
++
++    // Ensure that all of Drupal's standard directories have appropriate
++    // .htaccess files. These directories will have already been created by
++    // this point in the installer, since Drupal creates them during the
++    // install_check_requirements() task. Note that we cannot create them any
++    // earlier than this, since the code below relies on system.module in order
++    // to work.
++    file_create_htaccess(file_directory_path());
++    file_create_htaccess(file_directory_temp());
++
+     // Save the list of other modules to install for the 'profile-install'
+     // task. variable_set() can be used now that system.module is installed
+     // and drupal is bootstrapped.
+diff --git a/misc/ahah.js b/misc/ahah.js
+index 118c4de..e2a8659 100644
+--- a/misc/ahah.js
++++ b/misc/ahah.js
+@@ -44,6 +44,8 @@ Drupal.ahah = function(base, element_settings) {
+   this.method = element_settings.method;
+   this.progress = element_settings.progress;
+   this.button = element_settings.button || { };
++  this.immutable = element_settings.immutable;
++  this.buildId = null;
+ 
+   if (this.effect == 'none') {
+     this.showEffect = 'show';
+@@ -76,6 +78,9 @@ Drupal.ahah = function(base, element_settings) {
+     beforeSubmit: function(form_values, element_settings, options) {
+       return ahah.beforeSubmit(form_values, element_settings, options);
+     },
++    beforeSend: function(request, options) {
++      return ahah.beforeSend(request, options);
++    },
+     success: function(response, status) {
+       // Sanity check for browser support (object expected).
+       // When using iFrame uploads, responses must be returned as a string.
+@@ -85,6 +90,7 @@ Drupal.ahah = function(base, element_settings) {
+       return ahah.success(response, status);
+     },
+     complete: function(response, status) {
++      ahah.complete(response, status);
+       if (status == 'error' || status == 'parsererror') {
+         return ahah.error(response, ahah.url);
+       }
+@@ -139,9 +145,29 @@ Drupal.ahah.prototype.beforeSubmit = function (form_values, element, options) {
+     }
+     $(this.element).after(this.progress.element);
+   }
++
++  // Record the build-id.
++  if (this.immutable) {
++    var ahah = this;
++    $.each(form_values, function () {
++      if (this.name == 'form_build_id') {
++        ahah.buildId = this.value;
++        return false;
++      }
++    });
++  }
+ };
+ 
+ /**
++ * Modify the request object before it is sent.
++ */
++Drupal.ahah.prototype.beforeSend = function (request, options) {
++  if (this.immutable) {
++    request.setRequestHeader('X-Drupal-Accept-Build-Id', '1');
++  }
++}
++
++/**
+  * Handler for the form redirection completion.
+  */
+ Drupal.ahah.prototype.success = function (response, status) {
+@@ -222,3 +248,19 @@ Drupal.ahah.prototype.error = function (response, uri) {
+   // Re-enable the element.
+   $(this.element).removeClass('progess-disabled').attr('disabled', false);
+ };
++
++/**
++ * Handler called when the request finishes, whether in failure or success.
++ */
++Drupal.ahah.prototype.complete = function (response, status) {
++  // Update form build id if necessary.
++  if (this.immutable) {
++    var newBuildId = response.getResponseHeader('X-Drupal-Build-Id');
++    if (this.buildId && newBuildId && this.buildId != newBuildId) {
++      var $element = $('input[name="form_build_id"][value="' + this.buildId + '"]');
++      $element.val(newBuildId);
++      $element.attr('id', newBuildId);
++    }
++    this.buildId = null;
++  }
++}
+diff --git a/misc/drupal.js b/misc/drupal.js
+index d7365a4..975556b 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -1,4 +1,27 @@
+ 
++/**
++ * Override jQuery.fn.init to guard against XSS attacks.
++ *
++ * See http://bugs.jquery.com/ticket/9521
++ */
++(function () {
++  var jquery_init = jQuery.fn.init;
++  jQuery.fn.init = function (selector, context, rootjQuery) {
++    // If the string contains a "#" before a "<", treat it as invalid HTML.
++    if (selector && typeof selector === 'string') {
++      var hash_position = selector.indexOf('#');
++      if (hash_position >= 0) {
++        var bracket_position = selector.indexOf('<');
++        if (bracket_position > hash_position) {
++          throw 'Syntax error, unrecognized expression: ' + selector;
++        }
++      }
++    }
++    return jquery_init.call(this, selector, context, rootjQuery);
++  };
++  jQuery.fn.init.prototype = jquery_init.prototype;
++})();
++
+ var Drupal = Drupal || { 'settings': {}, 'behaviors': {}, 'themes': {}, 'locale': {} };
+ 
+ /**
+diff --git a/misc/tableheader.js b/misc/tableheader.js
+index 9d05e23..9deb18d 100644
+--- a/misc/tableheader.js
++++ b/misc/tableheader.js
+@@ -69,7 +69,7 @@ Drupal.behaviors.tableHeader = function (context) {
+     // Get the height of the header table and scroll up that amount.
+     if (prevAnchor != location.hash) {
+       if (location.hash != '') {
+-        var offset = $('td' + location.hash).offset();
++        var offset = $(document).find('td' + location.hash).offset();
+         if (offset) {
+           var top = offset.top;
+           var scrollLocation = top - $(e).height();
+diff --git a/modules/blogapi/blogapi.install b/modules/blogapi/blogapi.install
+index bd2f67d..c14c390 100644
+--- a/modules/blogapi/blogapi.install
++++ b/modules/blogapi/blogapi.install
+@@ -58,7 +58,7 @@ function blogapi_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-5.x-to-6.x Blog API updates from 5.x to 6.x
++ * @addtogroup updates-5.x-to-6.x
+  * @{
+  */
+ 
+@@ -118,7 +118,7 @@ function blogapi_update_6001() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "addtogroup updates-5.x-to-6.x".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/book/book.pages.inc b/modules/book/book.pages.inc
+index 46eb86a..e0e3f65 100644
+--- a/modules/book/book.pages.inc
++++ b/modules/book/book.pages.inc
+@@ -39,6 +39,14 @@ function book_render() {
+  *   in a format determined by the $type parameter.
+  */
+ function book_export($type, $nid) {
++  // Check that the node exists and that the current user has access to it.
++  $node = node_load($nid);
++  if (!$node) {
++    return MENU_NOT_FOUND;
++  }
++  if (!node_access('view', $node)) {
++    return MENU_ACCESS_DENIED;
++  }
+ 
+   $type = drupal_strtolower($type);
+ 
+diff --git a/modules/comment/comment-wrapper.tpl.php b/modules/comment/comment-wrapper.tpl.php
+index 6b6defc..d6471c6 100644
+--- a/modules/comment/comment-wrapper.tpl.php
++++ b/modules/comment/comment-wrapper.tpl.php
+@@ -27,7 +27,6 @@
+  *   - COMMENT_CONTROLS_HIDDEN
+  *
+  * @see template_preprocess_comment_wrapper()
+- * @see theme_comment_wrapper()
+  */
+ ?>
+ <div id="comments">
+diff --git a/modules/comment/comment.install b/modules/comment/comment.install
+index b129299..aa696e2 100644
+--- a/modules/comment/comment.install
++++ b/modules/comment/comment.install
+@@ -67,7 +67,7 @@ function comment_update_6003() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra system updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -91,7 +91,7 @@ function comment_update_6005() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/comment/comment.module b/modules/comment/comment.module
+index 4a41101..fd387df 100644
+--- a/modules/comment/comment.module
++++ b/modules/comment/comment.module
+@@ -1823,7 +1823,6 @@ function theme_comment_post_forbidden($node) {
+  * Process variables for comment-wrapper.tpl.php.
+  *
+  * @see comment-wrapper.tpl.php
+- * @see theme_comment_wrapper()
+  */
+ function template_preprocess_comment_wrapper(&$variables) {
+   // Provide contextual information.
+diff --git a/modules/dblog/dblog.install b/modules/dblog/dblog.install
+index 80c4584..f350e51 100644
+--- a/modules/dblog/dblog.install
++++ b/modules/dblog/dblog.install
+@@ -100,7 +100,7 @@ function dblog_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra database logging updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -114,6 +114,6 @@ function dblog_update_6000() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/dblog/dblog.module b/modules/dblog/dblog.module
+index 4a1326c..149b3ed 100644
+--- a/modules/dblog/dblog.module
++++ b/modules/dblog/dblog.module
+@@ -97,7 +97,7 @@ function dblog_init() {
+ /**
+  * Implementation of hook_cron().
+  *
+- * Remove expired log messages and flood control events.
++ * Remove expired log messages.
+  */
+ function dblog_cron() {
+   // Cleanup the watchdog table
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 5962c53..b955179 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -746,7 +746,7 @@ function _filter_url_settings($format) {
+ 
+ /**
+  * URL filter. Automatically converts text web addresses (URLs, e-mail addresses,
+- * ftp links, etc.) into hyperlinks.
++ * FTP links, etc.) into hyperlinks.
+  */
+ function _filter_url($text, $format) {
+   // Pass length to regexp callback
+diff --git a/modules/forum/forum.module b/modules/forum/forum.module
+index 1b027f3..d656f10 100644
+--- a/modules/forum/forum.module
++++ b/modules/forum/forum.module
+@@ -690,7 +690,7 @@ function template_preprocess_forums(&$variables) {
+       // Check if the current user has the 'create' permission for this node type.
+       if (node_access('create', $type)) {
+         // Fetch the "General" name of the content type;
+-        // Push the link with title and url to the array.
++        // Push the link with title and URL to the array.
+         $forum_types[$type] = array('title' => t('Post new @node_type', array('@node_type' => node_get_types('name', $type))), 'href' => 'node/add/'. str_replace('_', '-', $type) .'/'. $variables['tid']);
+       }
+     }
+diff --git a/modules/locale/locale.install b/modules/locale/locale.install
+index 6bd1fa0..6c04538 100644
+--- a/modules/locale/locale.install
++++ b/modules/locale/locale.install
+@@ -15,7 +15,7 @@ function locale_install() {
+ }
+ 
+ /**
+- * @defgroup updates-5.x-to-6.x Locale updates from 5.x to 6.x
++ * @addtogroup updates-5.x-to-6.x
+  * @{
+  */
+ 
+@@ -221,11 +221,11 @@ function locale_update_6006() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "addtogroup updates-5.x-to-6.x".
+  */
+ 
+ /**
+- * @defgroup updates-6.x-extra Locale updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -239,7 +239,7 @@ function locale_update_6007() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/menu/menu.module b/modules/menu/menu.module
+index cfe17b1..ff804d9 100644
+--- a/modules/menu/menu.module
++++ b/modules/menu/menu.module
+@@ -273,7 +273,6 @@ function menu_block($op = 'list', $delta = 0) {
+   if ($op == 'list') {
+     $blocks = array();
+     foreach ($menus as $name => $title) {
+-      // Default "Navigation" block is handled by user.module.
+       $blocks[$name]['info'] = check_plain($title);
+       // Menu blocks can't be cached because each menu item can have
+       // a custom access callback. menu.inc manages its own caching.
+diff --git a/modules/node/node.pages.inc b/modules/node/node.pages.inc
+index f5bbdfc..5b20004 100644
+--- a/modules/node/node.pages.inc
++++ b/modules/node/node.pages.inc
+@@ -14,6 +14,9 @@ function node_page_edit($node) {
+   return drupal_get_form($node->type .'_node_form', $node);
+ }
+ 
++/**
++ * Page callback: Displays add content links for available content types.
++ */
+ function node_add_page() {
+   $item = menu_get_item();
+   $content = system_admin_menu_block($item);
+diff --git a/modules/node/node.tpl.php b/modules/node/node.tpl.php
+index 0ae6fd9..0db067c 100644
+--- a/modules/node/node.tpl.php
++++ b/modules/node/node.tpl.php
+@@ -15,7 +15,7 @@
+  * - $links: Themed links like "Read more", "Add new comment", etc. output
+  *   from theme_links().
+  * - $name: Themed username of node author output from theme_username().
+- * - $node_url: Direct url of the current node.
++ * - $node_url: Direct URL of the current node.
+  * - $terms: the themed list of taxonomy term links output from theme_links().
+  * - $submitted: themed submission information output from
+  *   theme_node_submitted().
+diff --git a/modules/openid/openid.inc b/modules/openid/openid.inc
+index 44cdde2..70dbee9 100644
+--- a/modules/openid/openid.inc
++++ b/modules/openid/openid.inc
+@@ -361,7 +361,7 @@ function _openid_dh_rand($stop) {
+   }
+ 
+   do {
+-    $bytes = "\x00". _openid_get_bytes($nbytes);
++    $bytes = "\x00". drupal_random_bytes($nbytes);
+     $n = _openid_dh_binary_to_long($bytes);
+     // Keep looping if this value is in the low duplicated range.
+   } while (bccomp($n, $duplicate) < 0);
+@@ -370,23 +370,7 @@ function _openid_dh_rand($stop) {
+ }
+ 
+ function _openid_get_bytes($num_bytes) {
+-  static $f = null;
+-  $bytes = '';
+-  if (!isset($f)) {
+-    $f = @fopen(OPENID_RAND_SOURCE, "r");
+-  }
+-  if (!$f) {
+-    // pseudorandom used
+-    $bytes = '';
+-    for ($i = 0; $i < $num_bytes; $i += 4) {
+-      $bytes .= pack('L', mt_rand());
+-    }
+-    $bytes = substr($bytes, 0, $num_bytes);
+-  }
+-  else {
+-    $bytes = fread($f, $num_bytes);
+-  }
+-  return $bytes;
++  return drupal_random_bytes($num_bytes);
+ }
+ 
+ function _openid_response($str = NULL) {
+diff --git a/modules/openid/openid.install b/modules/openid/openid.install
+index 595310b..0b0c95d 100644
+--- a/modules/openid/openid.install
++++ b/modules/openid/openid.install
+@@ -26,13 +26,14 @@ function openid_schema() {
+       'idp_endpoint_uri' => array(
+         'type' => 'varchar',
+         'length' => 255,
+-        'description' => 'URI of the OpenID Provider endpoint.',
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
+       ),
+       'assoc_handle' => array(
+         'type' => 'varchar',
+         'length' => 255,
+         'not null' => TRUE,
+-        'description' => 'Primary Key: Used to refer to this association in subsequent messages.',
++        'description' => 'Used to refer to this association in subsequent messages.',
+       ),
+       'assoc_type' => array(
+         'type' => 'varchar',
+@@ -62,7 +63,10 @@ function openid_schema() {
+         'description' => 'The lifetime, in seconds, of this association.',
+       ),
+     ),
+-    'primary key' => array('assoc_handle'),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
+   );
+ 
+   $schema['openid_nonce'] = array(
+@@ -95,7 +99,7 @@ function openid_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra openid updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -139,6 +143,68 @@ function openid_update_6000() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * Bind associations to their providers.
++ */
++function openid_update_6001() {
++  $ret = array();
++
++  db_drop_table($ret, 'openid_association');
++
++  $schema['openid_association'] = array(
++    'description' => 'Stores temporary shared key association information for OpenID authentication.',
++    'fields' => array(
++      'idp_endpoint_uri' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Primary Key: URI of the OpenID Provider endpoint.',
++      ),
++      'assoc_handle' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'not null' => TRUE,
++        'description' => 'Used to refer to this association in subsequent messages.',
++      ),
++      'assoc_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'The signature algorithm used: one of HMAC-SHA1 or HMAC-SHA256.',
++      ),
++      'session_type' => array(
++        'type' => 'varchar',
++        'length' => 32,
++        'description' => 'Valid association session types: "no-encryption", "DH-SHA1", and "DH-SHA256".',
++      ),
++      'mac_key' => array(
++        'type' => 'varchar',
++        'length' => 255,
++        'description' => 'The MAC key (shared secret) for this association.',
++      ),
++      'created' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'UNIX timestamp for when the association was created.',
++      ),
++      'expires_in' => array(
++        'type' => 'int',
++        'not null' => TRUE,
++        'default' => 0,
++        'description' => 'The lifetime, in seconds, of this association.',
++      ),
++    ),
++    'primary key' => array('idp_endpoint_uri'),
++    'unique keys' => array(
++      'assoc_handle' => array('assoc_handle'),
++    ),
++  );
++
++  db_create_table($ret, 'openid_association', $schema['openid_association']);
++
++  return $ret;
++}
++
++/**
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index 88c4df6..2271464 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -553,7 +553,7 @@ function openid_verify_assertion($service, $response) {
+   // http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4
+   // Verify the signatures.
+   $valid = FALSE;
+-  $association = db_fetch_object(db_query("SELECT * FROM {openid_association} WHERE assoc_handle = '%s'", $response['openid.assoc_handle']));
++  $association = db_fetch_object(db_query("SELECT * FROM {openid_association} WHERE idp_endpoint_uri = '%s' AND assoc_handle = '%s'", $service['uri'], $response['openid.assoc_handle']));
+   if ($association && isset($association->session_type)) {
+     // http://openid.net/specs/openid-authentication-2_0.html#rfc.section.11.4.2
+     // Verification using an association.
+diff --git a/modules/openid/xrds.inc b/modules/openid/xrds.inc
+index 36f5282..7810b3c 100644
+--- a/modules/openid/xrds.inc
++++ b/modules/openid/xrds.inc
+@@ -15,6 +15,22 @@ function xrds_parse($xml) {
+   xml_set_element_handler($parser, '_xrds_element_start', '_xrds_element_end');
+   xml_set_character_data_handler($parser, '_xrds_cdata');
+ 
++  // Since DOCTYPE declarations from an untrusted source could be malicious, we
++  // stop parsing here and treat the XML as invalid. XRDS documents do not
++  // require, and are not expected to have, a DOCTYPE.
++  if (preg_match('/<!DOCTYPE/i', $xml)) {
++    return array();
++  }
++
++  // Also stop parsing if there is an unreasonably large number of tags.
++  // substr_count() has much better performance (compared to preg_match_all())
++  // for large payloads but is less accurate, so we check for twice the desired
++  // number of allowed tags (to take into account opening/closing tags as well
++  // as false positives).
++  if (substr_count($xml, '<') > 2 * variable_get('openid_xrds_maximum_tag_count', 30000)) {
++    return array();
++  }
++
+   xml_parse($parser, $xml);
+   xml_parser_free($parser);
+ 
+diff --git a/modules/profile/profile-wrapper.tpl.php b/modules/profile/profile-wrapper.tpl.php
+index 5b10d47..4601b59 100644
+--- a/modules/profile/profile-wrapper.tpl.php
++++ b/modules/profile/profile-wrapper.tpl.php
+@@ -6,7 +6,7 @@
+  * profiles.
+  *
+  * This template is used when viewing a list of users. It can be a general
+- * list for viewing all users with the url of "example.com/profile" or when
++ * list for viewing all users with the URL of "example.com/profile" or when
+  * viewing a set of users who share a specific value for a profile such
+  * as "example.com/profile/country/belgium".
+  *
+diff --git a/modules/statistics/statistics.install b/modules/statistics/statistics.install
+index 515796a..9103588 100644
+--- a/modules/statistics/statistics.install
++++ b/modules/statistics/statistics.install
+@@ -118,7 +118,7 @@ function statistics_schema() {
+ }
+ 
+ /**
+- * @defgroup updates-6.x-extra Extra statistics updates for 6.x
++ * @addtogroup updates-6.x-extra
+  * @{
+  */
+ 
+@@ -132,6 +132,6 @@ function statistics_update_6000() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "addtogroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/system/system.install b/modules/system/system.install
+index bb47862..eb2080a 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -1,12 +1,7 @@
+ <?php
+ 
+ /**
+- * Test and report Drupal installation requirements.
+- *
+- * @param $phase
+- *   The current system installation phase.
+- * @return
+- *   An array of system requirements.
++ * Implementation of hook_requirements().
+  */
+ function system_requirements($phase) {
+   $requirements = array();
+@@ -122,6 +117,35 @@ function system_requirements($phase) {
+     $requirements['settings.php']['title'] = $t('Configuration file');
+   }
+ 
++  // Test the contents of the .htaccess files.
++  if ($phase == 'runtime') {
++    // Try to write the .htaccess files first, to prevent false alarms in case
++    // (for example) the /tmp directory was wiped.
++    file_create_htaccess(file_directory_path());
++    file_create_htaccess(file_directory_temp());
++    $htaccess_files['files_htaccess'] = array(
++      'title' => $t('Files directory'),
++      'directory' => file_directory_path(),
++    );
++    $htaccess_files['temporary_files_htaccess'] = array(
++      'title' => $t('Temporary files directory'),
++      'directory' => file_directory_temp(),
++    );
++    foreach ($htaccess_files as $key => $file_info) {
++      // Check for the string which was added to the recommended .htaccess file
++      // in the latest security update.
++      $htaccess_file = $file_info['directory'] . '/.htaccess';
++      if (!file_exists($htaccess_file) || !($contents = @file_get_contents($htaccess_file)) || strpos($contents, 'Drupal_Security_Do_Not_Remove_See_SA_2013_003') === FALSE) {
++        $requirements[$key] = array(
++          'title' => $file_info['title'],
++          'value' => $t('Not fully protected'),
++          'severity' => REQUIREMENT_ERROR,
++          'description' => $t('See <a href="@url">@url</a> for information about the recommended .htaccess file which should be added to the %directory directory to help protect against arbitrary code execution.', array('@url' => 'http://drupal.org/SA-CORE-2013-003', '%directory' => $file_info['directory'])),
++        );
++      }
++    }
++  }
++
+   // Report cron status.
+   if ($phase == 'runtime') {
+     // Cron warning threshold defaults to two days.
+@@ -1184,7 +1208,7 @@ function system_update_1022() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-extra"
++ * @} End of "defgroup updates-5.x-extra".
+  */
+ 
+ /**
+@@ -2586,7 +2610,7 @@ function system_update_6047() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-5.x-to-6.x"
++ * @} End of "defgroup updates-5.x-to-6.x".
+  */
+ 
+ /**
+@@ -2727,7 +2751,7 @@ function system_update_6055() {
+ }
+ 
+ /**
+- * @} End of "defgroup updates-6.x-extra"
++ * @} End of "defgroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+ 
+diff --git a/modules/system/system.module b/modules/system/system.module
+index ea2ea3b..f66724e 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.27');
++define('VERSION', '6.35');
+ 
+ /**
+  * Core API compatibility.
+@@ -1208,8 +1208,6 @@ function system_node_type($op, $info) {
+  *   - A string containing a Drupal path.
+  *   - An associative array with a 'path' key. Additional array values are
+  *     passed as the $options parameter to l().
+- *   If the 'destination' query parameter is set in the URL when viewing a
+- *   confirmation form, that value will be used instead of $path.
+  * @param $description
+  *   Additional text to display. Defaults to t('This action cannot be undone.').
+  * @param $yes
+@@ -1959,8 +1957,8 @@ function _system_zonelist() {
+ function system_check_http_request() {
+   // Try to get the content of the front page via drupal_http_request().
+   $result = drupal_http_request(url('', array('absolute' => TRUE)), array(), 'GET', NULL, 0);
+-  // We only care that we get a http response - this means that Drupal
+-  // can make a http request.
++  // We only care that we get a HTTP response - this means that Drupal
++  // can make a HTTP request.
+   $works = isset($result->code) && ($result->code >= 100) && ($result->code < 600);
+   variable_set('drupal_http_request_fails', !$works);
+   return $works;
+diff --git a/modules/user/user.admin.inc b/modules/user/user.admin.inc
+index eac39df..c84fdbc 100644
+--- a/modules/user/user.admin.inc
++++ b/modules/user/user.admin.inc
+@@ -5,6 +5,21 @@
+  * Admin page callback file for the user module.
+  */
+ 
++/**
++ * Page callback: Generates the appropriate user administration form.
++ *
++ * This function generates the user registration, multiple user cancellation,
++ * or filtered user list admin form, depending on the argument and the POST
++ * form values.
++ *
++ * @param string $callback_arg
++ *   (optional) Indicates which form to build. Defaults to '', which will
++ *   trigger the user filter form. If the POST value 'op' is present, this
++ *   function uses that value as the callback argument.
++ *
++ * @return string
++ *   A renderable form array for the respective request.
++ */
+ function user_admin($callback_arg = '') {
+   $op = isset($_POST['op']) ? $_POST['op'] : $callback_arg;
+ 
+diff --git a/modules/user/user.module b/modules/user/user.module
+index b8e939f..2ec66f8 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -477,12 +477,15 @@ function user_password($length = 10) {
+ 
+   // Loop the number of times specified by $length.
+   for ($i = 0; $i < $length; $i++) {
++    do {
++      // Find a secure random number within the range needed.
++      $index = ord(drupal_random_bytes(1));
++    } while ($index > $len);
+ 
+     // Each iteration, pick a random character from the
+     // allowable string and append it to the password:
+-    $pass .= $allowable_characters[mt_rand(0, $len)];
++    $pass .= $allowable_characters[$index];
+   }
+-
+   return $pass;
+ }
+ 
+@@ -540,7 +543,12 @@ function user_access($string, $account = NULL, $reset = FALSE) {
+ /**
+  * Checks for usernames blocked by user administration.
+  *
+- * @return boolean TRUE for blocked users, FALSE for active.
++ * @param $name
++ *   A string containing a name of the user.
++ *
++ * @return
++ *   Object with property 'name' (the user name), if the user is blocked;
++ *   FALSE if the user is not blocked.
+  */
+ function user_is_blocked($name) {
+   $deny = db_fetch_object(db_query("SELECT name FROM {users} WHERE status = 0 AND name = '%s'", $name));
+@@ -1478,11 +1486,33 @@ function user_external_login_register($name, $module) {
+  */
+ function user_pass_reset_url($account) {
+   $timestamp = time();
+-  return url("user/reset/$account->uid/$timestamp/". user_pass_rehash($account->pass, $timestamp, $account->login), array('absolute' => TRUE));
++  return url("user/reset/$account->uid/$timestamp/". user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid), array('absolute' => TRUE));
+ }
+ 
+-function user_pass_rehash($password, $timestamp, $login) {
+-  return md5($timestamp . $password . $login);
++function user_pass_rehash($password, $timestamp, $login, $uid) {
++  // Backwards compatibility: Try to determine a $uid if one was not passed.
++  // (Since $uid is a required parameter to this function, a PHP warning will
++  // be generated if it's not provided, which is an indication that the calling
++  // code should be updated. But the code below will try to generate a correct
++  // hash in the meantime.)
++  if (!isset($uid)) {
++    $uids = array();
++    $result = db_query_range("SELECT uid FROM {users} WHERE pass = '%s' AND login = '%s' AND uid > 0", $password, $login, 0, 2);
++    while ($row = db_fetch_array($result)) {
++      $uids[] = $row['uid'];
++    }
++    // If exactly one user account matches the provided password and login
++    // timestamp, proceed with that $uid.
++    if (count($uids) == 1) {
++      $uid = reset($uids);
++    }
++    // Otherwise there is no safe hash to return, so return a random string
++    // that will never be treated as a valid token.
++    else {
++      return drupal_random_key();
++    }
++  }
++  return drupal_hmac_base64($timestamp . $login . $uid, drupal_get_private_key() . $password);
+ }
+ 
+ function user_edit_form(&$form_state, $uid, $edit, $register = FALSE) {
+diff --git a/modules/user/user.pages.inc b/modules/user/user.pages.inc
+index e5f7e5b..64cbd1e 100644
+--- a/modules/user/user.pages.inc
++++ b/modules/user/user.pages.inc
+@@ -106,7 +106,7 @@ function user_pass_reset(&$form_state, $uid, $timestamp, $hashed_pass, $action =
+         drupal_set_message(t('You have tried to use a one-time login link that has expired. Please request a new one using the form below.'));
+         drupal_goto('user/password');
+       }
+-      else if ($account->uid && $timestamp > $account->login && $timestamp < $current && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login)) {
++      else if ($account->uid && $timestamp > $account->login && $timestamp < $current && $hashed_pass == user_pass_rehash($account->pass, $timestamp, $account->login, $account->uid)) {
+         // First stage is a confirmation form, then login
+         if ($action == 'login') {
+           watchdog('user', 'User %name used one-time login link at time %timestamp.', array('%name' => $account->name, '%timestamp' => $timestamp));
+diff --git a/scripts/drupal.sh b/scripts/drupal.sh
+index 981e071..fa68d36 100755
+--- a/scripts/drupal.sh
++++ b/scripts/drupal.sh
+@@ -112,7 +112,7 @@ while ($param = array_shift($_SERVER['argv'])) {
+           $_REQUEST = $_GET;
+         }
+ 
+-        // set file to execute or Drupal path (clean urls enabled)
++        // set file to execute or Drupal path (clean URLs enabled)
+         if (isset($path['path']) && file_exists(substr($path['path'], 1))) {
+           $_SERVER['PHP_SELF'] = $_SERVER['REQUEST_URI'] = $path['path'];
+           $cmd = substr($path['path'], 1);
+diff --git a/update.php b/update.php
+index 781b304..6130a5e 100644
+--- a/update.php
++++ b/update.php
+@@ -183,6 +183,9 @@ function update_do_one($module, $number, &$context) {
+   $context['message'] = 'Updating '. check_plain($module) .' module';
+ }
+ 
++/**
++ * Renders a form with a list of available database updates.
++ */
+ function update_selection_page() {
+   $output = '<p>The version of Drupal you are updating from has been automatically detected. You can select a different version, but you should not need to.</p>';
+   $output .= '<p>Click Update to start the update process.</p>';
+@@ -653,13 +656,13 @@ if (!empty($update_free_access) || $user->uid == 1) {
+   $op = isset($_REQUEST['op']) ? $_REQUEST['op'] : '';
+   switch ($op) {
+     case 'selection':
+-      if (isset($_GET['token']) && $_GET['token'] == drupal_get_token('update')) {
++      if (isset($_GET['token']) && drupal_valid_token($_GET['token'], 'update')) {
+         $output = update_selection_page();
+         break;
+       }
+ 
+     case 'Update':
+-      if (isset($_GET['token']) && $_GET['token'] == drupal_get_token('update')) {
++      if (isset($_GET['token']) && drupal_valid_token($_GET['token'], 'update')) {
+         update_batch();
+         break;
+       }
