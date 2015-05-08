@@ -1,0 +1,691 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 039ab82..dbe104f 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,24 @@
+ 
++Drupal 7.37, 2015-05-07
++-----------------------
++- Fixed a regression in Drupal 7.36 which caused certain kinds of content types
++  to become disabled if they were defined by a no-longer-enabled module.
++- Removed a confusing description regarding automatic time zone detection from
++  the user account form (minor UI and data structure change).
++- Allowed custom HTML tags with a dash in the name to pass through filter_xss()
++  when specified in the list of allowed tags.
++- Allowed hook_field_schema() implementations to specify indexes for fields
++  based on a fixed-length column prefix (rather than the entire column), as was
++  already allowed in hook_schema() implementations.
++- Fixed PDO exceptions on PostgreSQL when accessing invalid entity URLs.
++- Added a sites/all/libraries folder to the codebase, with instructions for
++  using it.
++- Added a description to the "Administer text formats and filters" permission
++  on the Permissions page (string change).
++- Numerous small bug fixes.
++- Numerous API documentation improvements.
++- Additional automated test coverage.
++
+ Drupal 7.36, 2015-04-01
+ -----------------------
+ - Added a 'file_public_schema' variable which allows modules that define
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index b9d49de..b572cde 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.36');
++define('VERSION', '7.37');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/common.inc b/includes/common.inc
+index 0437ec1..cd30145 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -1522,7 +1522,7 @@ function _filter_xss_split($m, $store = FALSE) {
+     return '&lt;';
+   }
+ 
+-  if (!preg_match('%^<\s*(/\s*)?([a-zA-Z0-9]+)([^>]*)>?|(<!--.*?-->)$%', $string, $matches)) {
++  if (!preg_match('%^<\s*(/\s*)?([a-zA-Z0-9\-]+)([^>]*)>?|(<!--.*?-->)$%', $string, $matches)) {
+     // Seriously malformed.
+     return '';
+   }
+@@ -3802,7 +3802,7 @@ function drupal_load_stylesheet_content($contents, $optimize = FALSE) {
+ 
+   // Replaces @import commands with the actual stylesheet content.
+   // This happens recursively but omits external files.
+-  $contents = preg_replace_callback('/@import\s*(?:url\(\s*)?[\'"]?(?![a-z]+:)([^\'"\()]+)[\'"]?\s*\)?\s*;/', '_drupal_load_stylesheet', $contents);
++  $contents = preg_replace_callback('/@import\s*(?:url\(\s*)?[\'"]?(?![a-z]+:)(?!\/\/)([^\'"\()]+)[\'"]?\s*\)?\s*;/', '_drupal_load_stylesheet', $contents);
+   return $contents;
+ }
+ 
+@@ -7138,6 +7138,23 @@ function _drupal_schema_initialize(&$schema, $module, $remove_descriptions = TRU
+ }
+ 
+ /**
++ * Retrieves the type for every field in a table schema.
++ *
++ * @param $table
++ *   The name of the table from which to retrieve type information.
++ *
++ * @return
++ *   An array of types, keyed by field name.
++ */
++function drupal_schema_field_types($table) {
++  $table_schema = drupal_get_schema($table);
++  foreach ($table_schema['fields'] as $field_name => $field_info) {
++    $field_types[$field_name] = isset($field_info['type']) ? $field_info['type'] : NULL;
++  }
++  return $field_types;
++}
++
++/**
+  * Retrieves a list of fields from a table schema.
+  *
+  * The returned list is suitable for use in an SQL query.
+@@ -7761,6 +7778,7 @@ function entity_get_info($entity_type = NULL) {
+         // Prepare entity schema fields SQL info for
+         // DrupalEntityControllerInterface::buildQuery().
+         if (isset($entity_info[$name]['base table'])) {
++          $entity_info[$name]['base table field types'] = drupal_schema_field_types($entity_info[$name]['base table']);
+           $entity_info[$name]['schema_fields_sql']['base table'] = drupal_schema_fields_sql($entity_info[$name]['base table']);
+           if (isset($entity_info[$name]['revision table'])) {
+             $entity_info[$name]['schema_fields_sql']['revision table'] = drupal_schema_fields_sql($entity_info[$name]['revision table']);
+diff --git a/includes/entity.inc b/includes/entity.inc
+index 27434d0..62359a9 100644
+--- a/includes/entity.inc
++++ b/includes/entity.inc
+@@ -183,6 +183,11 @@ public function load($ids = array(), $conditions = array()) {
+       }
+     }
+ 
++    // Ensure integer entity IDs are valid.
++    if (!empty($ids)) {
++      $this->cleanIds($ids);
++    }
++
+     // Load any remaining entities from the database. This is the case if $ids
+     // is set to FALSE (so we load all entities), if there are any ids left to
+     // load, if loading a revision, or if $conditions was passed without $ids.
+@@ -224,6 +229,35 @@ public function load($ids = array(), $conditions = array()) {
+   }
+ 
+   /**
++   * Ensures integer entity IDs are valid.
++   *
++   * The identifier sanitization provided by this method has been introduced
++   * as Drupal used to rely on the database to facilitate this, which worked
++   * correctly with MySQL but led to errors with other DBMS such as PostgreSQL.
++   *
++   * @param array $ids
++   *   The entity IDs to verify. Non-integer IDs are removed from this array if
++   *   the entity type requires IDs to be integers.
++   */
++  protected function cleanIds(&$ids) {
++    $entity_info = entity_get_info($this->entityType);
++    if (isset($entity_info['base table field types'])) {
++      $id_type = $entity_info['base table field types'][$this->idKey];
++      if ($id_type == 'serial' || $id_type == 'int') {
++        $ids = array_filter($ids, array($this, 'filterId'));
++        $ids = array_map('intval', $ids);
++      }
++    }
++  }
++
++  /**
++   * Callback for array_filter that removes non-integer IDs.
++   */
++  protected function filterId($id) {
++    return is_numeric($id) && $id == (int) $id;
++  }
++
++  /**
+    * Builds the query to load the entity.
+    *
+    * This has full revision support. For entities requiring special queries,
+diff --git a/includes/form.inc b/includes/form.inc
+index 0d358c2..306747b 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -2662,8 +2662,8 @@ function _form_options_flatten($array) {
+  *   - #required: (optional) Whether the user needs to select an option (TRUE)
+  *     or not (FALSE). Defaults to FALSE.
+  *   - #empty_option: (optional) The label to show for the first default option.
+- *     By default, the label is automatically set to "- Please select -" for a
+- *     required field and "- None -" for an optional field.
++ *     By default, the label is automatically set to "- Select -" for a required
++ *     field and "- None -" for an optional field.
+  *   - #empty_value: (optional) The value for the first default option, which is
+  *     used to determine whether the user submitted a value or not.
+  *     - If #required is TRUE, this defaults to '' (an empty string).
+diff --git a/includes/install.core.inc b/includes/install.core.inc
+index 38ad724..e5a6586 100644
+--- a/includes/install.core.inc
++++ b/includes/install.core.inc
+@@ -362,7 +362,8 @@ function install_run_tasks(&$install_state) {
+  * Runs an individual installation task.
+  *
+  * @param $task
+- *   An array of information about the task to be run.
++ *   An array of information about the task to be run as returned by
++ *   hook_install_tasks().
+  * @param $install_state
+  *   An array of information about the current installation state. This is
+  *   passed in by reference so that it can be modified by the task.
+@@ -478,11 +479,15 @@ function install_run_task($task, &$install_state) {
+  * the page request evolves (for example, if an installation profile hasn't
+  * been selected yet, we don't yet know which profile tasks need to be run).
+  *
++ * You can override this using hook_install_tasks() or
++ * hook_install_tasks_alter().
++ *
+  * @param $install_state
+  *   An array of information about the current installation state.
+  *
+  * @return
+- *   A list of tasks to be performed, with associated metadata.
++ *   A list of tasks to be performed, with associated metadata as returned by
++ *   hook_install_tasks().
+  */
+ function install_tasks_to_perform($install_state) {
+   // Start with a list of all currently available tasks.
+diff --git a/modules/field/modules/field_sql_storage/field_sql_storage.module b/modules/field/modules/field_sql_storage/field_sql_storage.module
+index c7201dd..842893a 100644
+--- a/modules/field/modules/field_sql_storage/field_sql_storage.module
++++ b/modules/field/modules/field_sql_storage/field_sql_storage.module
+@@ -223,7 +223,17 @@ function _field_sql_storage_schema($field) {
+   foreach ($field['indexes'] as $index_name => $columns) {
+     $real_name = _field_sql_storage_indexname($field['field_name'], $index_name);
+     foreach ($columns as $column_name) {
+-      $current['indexes'][$real_name][] = _field_sql_storage_columnname($field['field_name'], $column_name);
++      // Indexes can be specified as either a column name or an array with
++      // column name and length. Allow for either case.
++      if (is_array($column_name)) {
++        $current['indexes'][$real_name][] = array(
++          _field_sql_storage_columnname($field['field_name'], $column_name[0]),
++          $column_name[1],
++        );
++      }
++      else {
++        $current['indexes'][$real_name][] = _field_sql_storage_columnname($field['field_name'], $column_name);
++      }
+     }
+   }
+ 
+@@ -332,7 +342,17 @@ function field_sql_storage_field_storage_update_field($field, $prior_field, $has
+         $real_name = _field_sql_storage_indexname($field['field_name'], $name);
+         $real_columns = array();
+         foreach ($columns as $column_name) {
+-          $real_columns[] = _field_sql_storage_columnname($field['field_name'], $column_name);
++          // Indexes can be specified as either a column name or an array with
++          // column name and length. Allow for either case.
++          if (is_array($column_name)) {
++            $real_columns[] = array(
++              _field_sql_storage_columnname($field['field_name'], $column_name[0]),
++              $column_name[1],
++            );
++          }
++          else {
++            $real_columns[] = _field_sql_storage_columnname($field['field_name'], $column_name);
++          }
+         }
+         db_add_index($table, $real_name, $real_columns);
+         db_add_index($revision_table, $real_name, $real_columns);
+diff --git a/modules/field/modules/field_sql_storage/field_sql_storage.test b/modules/field/modules/field_sql_storage/field_sql_storage.test
+index 072739c..7c88ac7 100644
+--- a/modules/field/modules/field_sql_storage/field_sql_storage.test
++++ b/modules/field/modules/field_sql_storage/field_sql_storage.test
+@@ -355,14 +355,14 @@ function testFieldUpdateIndexesWithData() {
+     field_attach_insert('test_entity', $entity);
+ 
+     // Add an index
+-    $field = array('field_name' => $field_name, 'indexes' => array('value' => array('value')));
++    $field = array('field_name' => $field_name, 'indexes' => array('value' => array(array('value', 255))));
+     field_update_field($field);
+     foreach ($tables as $table) {
+       $this->assertTrue(Database::getConnection()->schema()->indexExists($table, "{$field_name}_value"), format_string("Index on value created in %table", array('%table' => $table)));
+     }
+ 
+     // Add a different index, removing the existing custom one.
+-    $field = array('field_name' => $field_name, 'indexes' => array('value_format' => array('value', 'format')));
++    $field = array('field_name' => $field_name, 'indexes' => array('value_format' => array(array('value', 127), array('format', 127))));
+     field_update_field($field);
+     foreach ($tables as $table) {
+       $this->assertTrue(Database::getConnection()->schema()->indexExists($table, "{$field_name}_value_format"), format_string("Index on value_format created in %table", array('%table' => $table)));
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 74621f1..f4bab9e 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -340,6 +340,7 @@ function filter_admin_format_title($format) {
+ function filter_permission() {
+   $perms['administer filters'] = array(
+     'title' => t('Administer text formats and filters'),
++    'description' => t('Define how text is handled by combining filters into <a href="@url">text formats</a>.', array('@url' => url('admin/config/content/formats'))),
+     'restrict access' => TRUE,
+   );
+ 
+diff --git a/modules/filter/filter.test b/modules/filter/filter.test
+index fe9cfc3..ddea6af 100644
+--- a/modules/filter/filter.test
++++ b/modules/filter/filter.test
+@@ -1148,7 +1148,7 @@ function testHtmlFilter() {
+     // Setup dummy filter object.
+     $filter = new stdClass();
+     $filter->settings = array(
+-      'allowed_html' => '<a> <em> <strong> <cite> <blockquote> <code> <ul> <ol> <li> <dl> <dt> <dd>',
++      'allowed_html' => '<a> <em> <strong> <cite> <blockquote> <code> <ul> <ol> <li> <dl> <dt> <dd> <test-element>',
+       'filter_html_help' => 1,
+       'filter_html_nofollow' => 0,
+     );
+@@ -1184,6 +1184,10 @@ function testHtmlFilter() {
+ 
+     $f = _filter_html('<code onerror>&nbsp;</code>', $filter);
+     $this->assertNoNormalized($f, 'onerror', 'HTML filter should remove empty on* attributes on default.');
++
++    // Custom tags are supported and should be allowed through.
++    $f = _filter_html('<test-element></test-element>', $filter);
++    $this->assertNormalized($f, 'test-element', 'HTML filter should allow custom elements.');
+   }
+ 
+   /**
+diff --git a/modules/node/node.install b/modules/node/node.install
+index 76c2aec..0b0a7bd 100644
+--- a/modules/node/node.install
++++ b/modules/node/node.install
+@@ -934,5 +934,15 @@ function node_update_7014() {
+ }
+ 
+ /**
++ * Enable node types that may have been erroneously disabled in Drupal 7.36.
++ */
++function node_update_7015() {
++  db_update('node_type')
++    ->fields(array('disabled' => 0))
++    ->condition('base', 'node_content')
++    ->execute();
++}
++
++/**
+  * @} End of "addtogroup updates-7.x-extra".
+  */
+diff --git a/modules/node/node.module b/modules/node/node.module
+index fd848e2..7a6246d 100644
+--- a/modules/node/node.module
++++ b/modules/node/node.module
+@@ -740,9 +740,11 @@ function _node_types_build($rebuild = FALSE) {
+     $type_db = $type_object->type;
+     // Original disabled value.
+     $disabled = $type_object->disabled;
+-    // Check for node types either from disabled modules or otherwise not defined
+-    // and mark as disabled.
+-    if (empty($type_object->custom) && empty($_node_types->types[$type_db])) {
++    // Check for node types from disabled modules and mark their types for removal.
++    // Types defined by the node module in the database (rather than by a separate
++    // module using hook_node_info) have a base value of 'node_content'. The isset()
++    // check prevents errors on old (pre-Drupal 7) databases.
++    if (isset($type_object->base) && $type_object->base != 'node_content' && empty($_node_types->types[$type_db])) {
+       $type_object->disabled = TRUE;
+     }
+     if (isset($_node_types->types[$type_db])) {
+diff --git a/modules/poll/poll.module b/modules/poll/poll.module
+index d3d64b1..bfc72bf 100644
+--- a/modules/poll/poll.module
++++ b/modules/poll/poll.module
+@@ -191,7 +191,6 @@ function poll_node_info() {
+       'base' => 'poll',
+       'description' => t('A <em>poll</em> is a question with a set of possible responses. A <em>poll</em>, once created, automatically provides a simple running count of the number of votes received for each response.'),
+       'title_label' => t('Question'),
+-      'has_body' => FALSE,
+     )
+   );
+ }
+diff --git a/modules/simpletest/drupal_web_test_case.php b/modules/simpletest/drupal_web_test_case.php
+index 271efff..fb5c6a6 100644
+--- a/modules/simpletest/drupal_web_test_case.php
++++ b/modules/simpletest/drupal_web_test_case.php
+@@ -2257,8 +2257,13 @@ protected function drupalPostAJAX($path, $edit, $triggering_element, $ajax_path
+             if ($wrapperNode) {
+               // ajax.js adds an enclosing DIV to work around a Safari bug.
+               $newDom = new DOMDocument();
++              // DOM can load HTML soup. But, HTML soup can throw warnings,
++              // suppress them.
+               $newDom->loadHTML('<div>' . $command['data'] . '</div>');
+-              $newNode = $dom->importNode($newDom->documentElement->firstChild->firstChild, TRUE);
++              // Suppress warnings thrown when duplicate HTML IDs are
++              // encountered. This probably means we are replacing an element
++              // with the same ID.
++              $newNode = @$dom->importNode($newDom->documentElement->firstChild->firstChild, TRUE);
+               $method = isset($command['method']) ? $command['method'] : $ajax_settings['method'];
+               // The "method" is a jQuery DOM manipulation function. Emulate
+               // each one using PHP's DOMNode API.
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css b/modules/simpletest/files/css_test_files/css_input_with_import.css
+index 87afcb3..484db83 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css
+@@ -1,5 +1,7 @@
+ 
+ 
++@import url("http://example.com/style.css");
++@import url("//example.com/style.css");
+ @import "import1.css";
+ @import "import2.css";
+ 
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css b/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
+index a05f939..a2af7b3 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
+@@ -1,4 +1,4 @@
+-ul,select{font:1em/160% Verdana,sans-serif;color:#494949;}.ui-icon{background-image:url(images/icon.png);}.data .double-quote{background-image:url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");}.data .single-quote{background-image:url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKAAH//Z');}.data .no-quote{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACEAAAAEAQAAAAAo/mtHAAAAIElEQVQIHWMRnWHwcRNLN8NZ7QYWwT8PlBlYsgqVBRsAankIMw5MtnoAAAAASUVORK5CYII=);}
++@import url("http://example.com/style.css");@import url("//example.com/style.css");ul,select{font:1em/160% Verdana,sans-serif;color:#494949;}.ui-icon{background-image:url(images/icon.png);}.data .double-quote{background-image:url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");}.data .single-quote{background-image:url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKAAH//Z');}.data .no-quote{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACEAAAAEAQAAAAAo/mtHAAAAIElEQVQIHWMRnWHwcRNLN8NZ7QYWwT8PlBlYsgqVBRsAankIMw5MtnoAAAAASUVORK5CYII=);}
+ p,select{font:1em/160% Verdana,sans-serif;color:#494949;}
+ body{margin:0;padding:0;background:#edf5fa;font:76%/170% Verdana,sans-serif;color:#494949;}.this .is .a .test{font:1em/100% Verdana,sans-serif;color:#494949;}.this
+ .is
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css b/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
+index b8c7778..bc3c7b6 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
+@@ -1,5 +1,7 @@
+ 
+ 
++@import url("http://example.com/style.css");
++@import url("//example.com/style.css");
+ 
+ ul, select {
+   font: 1em/160% Verdana, sans-serif;
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index 0f0347f..fcc9791 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -942,6 +942,7 @@ public static function getInfo() {
+    * - Proper URLs in imported files. (https://drupal.org/node/265719)
+    * - Retain pseudo-selectors. (https://drupal.org/node/460448)
+    * - Don't adjust data URIs. (https://drupal.org/node/2142441)
++   * - Files imported from external URLs. (https://drupal.org/node/2014851)
+    */
+   function testLoadCssBasic() {
+     // Array of files to test living in 'simpletest/files/css_test_files/'.
+diff --git a/modules/simpletest/tests/file.test b/modules/simpletest/tests/file.test
+index b75327f..89ecac7 100644
+--- a/modules/simpletest/tests/file.test
++++ b/modules/simpletest/tests/file.test
+@@ -480,13 +480,6 @@ function testFileValidateNameLength() {
+    * Test file_validate_size().
+    */
+   function testFileValidateSize() {
+-    global $user;
+-    $original_user = $user;
+-    drupal_save_session(FALSE);
+-
+-    // Run these tests as a regular user.
+-    $user = $this->drupalCreateUser();
+-
+     // Create a file with a size of 1000 bytes, and quotas of only 1 byte.
+     $file = new stdClass();
+     $file->filesize = 1000;
+@@ -498,9 +491,6 @@ function testFileValidateSize() {
+     $this->assertEqual(count($errors), 1, 'Error for the user being over their limit.', 'File');
+     $errors = file_validate_size($file, 1, 1);
+     $this->assertEqual(count($errors), 2, 'Errors for both the file and their limit.', 'File');
+-
+-    $user = $original_user;
+-    drupal_save_session(TRUE);
+   }
+ }
+ 
+diff --git a/modules/simpletest/tests/session.test b/modules/simpletest/tests/session.test
+index 097503b..893d03e 100644
+--- a/modules/simpletest/tests/session.test
++++ b/modules/simpletest/tests/session.test
+@@ -478,6 +478,56 @@ protected function testHttpsSession() {
+   }
+ 
+   /**
++   * Tests that empty session IDs do not cause unrelated sessions to load.
++   */
++  public function testEmptySessionId() {
++    global $is_https;
++
++    if ($is_https) {
++      $secure_session_name = session_name();
++    }
++    else {
++      $secure_session_name = 'S' . session_name();
++    }
++
++    // Enable mixed mode for HTTP and HTTPS.
++    variable_set('https', TRUE);
++
++    $admin_user = $this->drupalCreateUser(array('access administration pages'));
++    $standard_user = $this->drupalCreateUser(array('access content'));
++
++    // First log in as the admin user on HTTP.
++    // We cannot use $this->drupalLogin() here because we need to use the
++    // special http.php URLs.
++    $edit = array(
++      'name' => $admin_user->name,
++      'pass' => $admin_user->pass_raw
++    );
++    $this->drupalGet('user');
++    $form = $this->xpath('//form[@id="user-login"]');
++    $form[0]['action'] = $this->httpUrl('user');
++    $this->drupalPost(NULL, $edit, t('Log in'));
++
++    $this->curlClose();
++
++    // Now start a session for the standard user on HTTPS.
++    $edit = array(
++      'name' => $standard_user->name,
++      'pass' => $standard_user->pass_raw
++    );
++    $this->drupalGet('user');
++    $form = $this->xpath('//form[@id="user-login"]');
++    $form[0]['action'] = $this->httpsUrl('user');
++    $this->drupalPost(NULL, $edit, t('Log in'));
++
++    // Make the secure session cookie blank.
++    curl_setopt($this->curlHandle, CURLOPT_COOKIE, "$secure_session_name=");
++    $this->drupalGet($this->httpsUrl('user'));
++    $this->assertNoText($admin_user->name, 'User is not logged in as admin');
++    $this->assertNoText($standard_user->name, "The user's own name is not displayed because the invalid session cookie has logged them out.");
++  }
++
++  /**
+    * Test that there exists a session with two specific session IDs.
+    *
+    * @param $sid
+diff --git a/modules/system/system.api.php b/modules/system/system.api.php
+index 0af6156..d6cbc76 100644
+--- a/modules/system/system.api.php
++++ b/modules/system/system.api.php
+@@ -606,7 +606,7 @@ function hook_cron() {
+  * @return
+  *   An associative array where the key is the queue name and the value is
+  *   again an associative array. Possible keys are:
+- *   - 'worker callback': A PHP callable to call that is an implementation of
++ *   - 'worker callback': The name of an implementation of
+  *     callback_queue_worker().
+  *   - 'time': (optional) How much time Drupal should spend on calling this
+  *     worker in seconds. Defaults to 15.
+@@ -644,28 +644,6 @@ function hook_cron_queue_info_alter(&$queues) {
+ }
+ 
+ /**
+- * Work on a single queue item.
+- *
+- * Callback for hook_queue_info().
+- *
+- * @param $queue_item_data
+- *   The data that was passed to DrupalQueue::createItem() when the item was
+- *   queued.
+- *
+- * @throws \Exception
+- *   The worker callback may throw an exception to indicate there was a problem.
+- *   The cron process will log the exception, and leave the item in the queue to
+- *   be processed again later.
+- *
+- * @see drupal_cron_run()
+- */
+-function callback_queue_worker($queue_item_data) {
+-  $node = node_load($queue_item_data);
+-  $node->title = 'Updated title';
+-  $node->save();
+-}
+-
+-/**
+  * Allows modules to declare their own Form API element types and specify their
+  * default values.
+  *
+@@ -3715,8 +3693,9 @@ function hook_registry_files_alter(&$files, $modules) {
+  *
+  * Any tasks you define here will be run, in order, after the installer has
+  * finished the site configuration step but before it has moved on to the
+- * final import of languages and the end of the installation. You can have any
+- * number of custom tasks to perform during this phase.
++ * final import of languages and the end of the installation. This is invoked
++ * by install_tasks().  You can have any number of custom tasks to perform
++ * during this phase.
+  *
+  * Each task you define here corresponds to a callback function which you must
+  * separately define and which is called when your task is run. This function
+@@ -3809,6 +3788,8 @@ function hook_registry_files_alter(&$files, $modules) {
+  *
+  * @see install_state_defaults()
+  * @see batch_set()
++ * @see hook_install_tasks_alter()
++ * @see install_tasks()
+  */
+ function hook_install_tasks(&$install_state) {
+   // Here, we define a variable to allow tasks to indicate that a particular,
+@@ -3911,6 +3892,8 @@ function hook_html_head_alter(&$head_elements) {
+ /**
+  * Alter the full list of installation tasks.
+  *
++ * This hook is invoked on the install profile in install_tasks().
++ *
+  * @param $tasks
+  *   An array of all available installation tasks, including those provided by
+  *   Drupal core. You can modify this array to change or replace any part of
+@@ -3918,6 +3901,9 @@ function hook_html_head_alter(&$head_elements) {
+  *   is selected.
+  * @param $install_state
+  *   An array of information about the current installation state.
++ *
++ * @see hook_install_tasks()
++ * @see install_tasks()
+  */
+ function hook_install_tasks_alter(&$tasks, $install_state) {
+   // Replace the "Choose language" installation task provided by Drupal core
+@@ -4805,6 +4791,28 @@ function hook_filetransfer_info_alter(&$filetransfer_info) {
+  */
+ 
+ /**
++ * Work on a single queue item.
++ *
++ * Callback for hook_cron_queue_info().
++ *
++ * @param $queue_item_data
++ *   The data that was passed to DrupalQueueInterface::createItem() when the
++ *   item was queued.
++ *
++ * @throws Exception
++ *   The worker callback may throw an exception to indicate there was a problem.
++ *   The cron process will log the exception, and leave the item in the queue to
++ *   be processed again later.
++ *
++ * @see drupal_cron_run()
++ */
++function callback_queue_worker($queue_item_data) {
++  $node = node_load($queue_item_data);
++  $node->title = 'Updated title';
++  node_save($node);
++}
++
++/**
+  * Return the URI for an entity.
+  *
+  * Callback for hook_entity_info().
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 6a6200e..8fc517f 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -2030,7 +2030,6 @@ function system_user_timezone(&$form, &$form_state) {
+     '#description' => t('Select the desired local time and time zone. Dates and times throughout this site will be displayed using this time zone.'),
+   );
+   if (!isset($account->timezone) && $account->uid == $user->uid && empty($form_state['input']['timezone'])) {
+-    $form['timezone']['#description'] = t('Your time zone setting will be automatically detected if possible. Confirm the selection and click save.');
+     $form['timezone']['timezone']['#attributes'] = array('class' => array('timezone-detect'));
+     drupal_add_js('misc/timezone.js');
+   }
+diff --git a/modules/system/system.queue.inc b/modules/system/system.queue.inc
+index 901c4d6..6eeaae1 100644
+--- a/modules/system/system.queue.inc
++++ b/modules/system/system.queue.inc
+@@ -231,7 +231,7 @@ public function claimItem($lease_time = 30) {
+     // until an item is successfully claimed or we are reasonably sure there
+     // are no unclaimed items left.
+     while (TRUE) {
+-      $item = db_query_range('SELECT data, item_id FROM {queue} q WHERE expire = 0 AND name = :name ORDER BY created ASC', 0, 1, array(':name' => $this->name))->fetchObject();
++      $item = db_query_range('SELECT data, item_id FROM {queue} q WHERE expire = 0 AND name = :name ORDER BY created, item_id ASC', 0, 1, array(':name' => $this->name))->fetchObject();
+       if ($item) {
+         // Try to update the item. Only one thread can succeed in UPDATEing the
+         // same row. We cannot rely on REQUEST_TIME because items might be
+diff --git a/modules/system/system.test b/modules/system/system.test
+index 3e26bae..d4c98f0 100644
+--- a/modules/system/system.test
++++ b/modules/system/system.test
+@@ -1068,6 +1068,11 @@ function testPageNotFound() {
+     );
+     $node = $this->drupalCreateNode($edit);
+ 
++    // As node IDs must be integers, make sure requests for non-integer IDs
++    // return a page not found error.
++    $this->drupalGet('node/invalid');
++    $this->assertResponse(404);
++
+     // Use a custom 404 page.
+     $this->drupalPost('admin/config/system/site-information', array('site_404' => 'node/' . $node->nid), t('Save configuration'));
+ 
+diff --git a/modules/translation/translation.module b/modules/translation/translation.module
+index 53c4641..580d000 100644
+--- a/modules/translation/translation.module
++++ b/modules/translation/translation.module
+@@ -428,7 +428,7 @@ function translation_node_delete($node) {
+  *   A node object.
+  */
+ function translation_remove_from_set($node) {
+-  if (isset($node->tnid)) {
++  if (isset($node->tnid) && $node->tnid) {
+     $query = db_update('node')
+       ->fields(array(
+         'tnid' => 0,
+diff --git a/modules/update/update.module b/modules/update/update.module
+index d1f0d85..a59c7d7 100644
+--- a/modules/update/update.module
++++ b/modules/update/update.module
+@@ -278,12 +278,15 @@ function update_theme() {
+     ),
+     'update_report' => array(
+       'variables' => array('data' => NULL),
++      'file' => 'update.report.inc',
+     ),
+     'update_version' => array(
+       'variables' => array('version' => NULL, 'tag' => NULL, 'class' => array()),
++      'file' => 'update.report.inc',
+     ),
+     'update_status_label' => array(
+       'variables' => array('status' => NULL),
++      'file' => 'update.report.inc',
+     ),
+   );
+ }
+diff --git a/sites/all/libraries/README.txt b/sites/all/libraries/README.txt
+new file mode 100644
+index 0000000..d027ec2
+--- /dev/null
++++ b/sites/all/libraries/README.txt
+@@ -0,0 +1,2 @@
++This directory should be used to place downloaded and custom libraries (such as
++Javascript libraries) which are used by contributed or custom modules.
