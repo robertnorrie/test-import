@@ -1,0 +1,278 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index dbe104f..5ba3523 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.38, 2015-06-17
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-002.
++
+ Drupal 7.37, 2015-05-07
+ -----------------------
+ - Fixed a regression in Drupal 7.36 which caused certain kinds of content types
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index b572cde..5eaa05e 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.37');
++define('VERSION', '7.38');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/common.inc b/includes/common.inc
+index cd30145..ceac115 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -6329,13 +6329,21 @@ function drupal_render_cid_parts($granularity = NULL) {
+   }
+ 
+   if (!empty($granularity)) {
++    $cache_per_role = $granularity & DRUPAL_CACHE_PER_ROLE;
++    $cache_per_user = $granularity & DRUPAL_CACHE_PER_USER;
++    // User 1 has special permissions outside of the role system, so when
++    // caching per role is requested, it should cache per user instead.
++    if ($user->uid == 1 && $cache_per_role) {
++      $cache_per_user = TRUE;
++      $cache_per_role = FALSE;
++    }
+     // 'PER_ROLE' and 'PER_USER' are mutually exclusive. 'PER_USER' can be a
+     // resource drag for sites with many users, so when a module is being
+     // equivocal, we favor the less expensive 'PER_ROLE' pattern.
+-    if ($granularity & DRUPAL_CACHE_PER_ROLE) {
++    if ($cache_per_role) {
+       $cid_parts[] = 'r.' . implode(',', array_keys($user->roles));
+     }
+-    elseif ($granularity & DRUPAL_CACHE_PER_USER) {
++    elseif ($cache_per_user) {
+       $cid_parts[] = "u.$user->uid";
+     }
+ 
+diff --git a/modules/field_ui/field_ui.admin.inc b/modules/field_ui/field_ui.admin.inc
+index 5d74a5c..7d09d6f 100644
+--- a/modules/field_ui/field_ui.admin.inc
++++ b/modules/field_ui/field_ui.admin.inc
+@@ -2105,6 +2105,10 @@ function field_ui_next_destination($entity_type, $bundle) {
+   $destinations = !empty($_REQUEST['destinations']) ? $_REQUEST['destinations'] : array();
+   if (!empty($destinations)) {
+     unset($_REQUEST['destinations']);
++  }
++  // Remove any external URLs.
++  $destinations = array_diff($destinations, array_filter($destinations, 'url_is_external'));
++  if ($destinations) {
+     return field_ui_get_destinations($destinations);
+   }
+   $admin_path = _field_ui_bundle_admin_path($entity_type, $bundle);
+diff --git a/modules/field_ui/field_ui.test b/modules/field_ui/field_ui.test
+index 21767d6..8c42aa6 100644
+--- a/modules/field_ui/field_ui.test
++++ b/modules/field_ui/field_ui.test
+@@ -445,6 +445,19 @@ function testDuplicateFieldName() {
+     $this->assertText(t('The machine-readable name is already in use. It must be unique.'));
+     $this->assertUrl($url, array(), 'Stayed on the same page.');
+   }
++
++  /**
++   * Tests that external URLs in the 'destinations' query parameter are blocked.
++   */
++  function testExternalDestinations() {
++    $path = 'admin/structure/types/manage/article/fields/field_tags/field-settings';
++    $options = array(
++      'query' => array('destinations' => array('http://example.com')),
++    );
++    $this->drupalPost($path, NULL, t('Save field settings'), $options);
++
++    $this->assertUrl('admin/structure/types/manage/article/fields', array(), 'Stayed on the same site.');
++  }
+ }
+ 
+ /**
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index a28f452..a52dbc3 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -365,14 +365,20 @@ function openid_complete($response = array()) {
+             // to the OpenID Provider, we need to do discovery on the returned
+             // identififer to make sure that the provider is authorized to
+             // respond on behalf of this.
+-            if ($response_claimed_id != $claimed_id) {
++            if ($response_claimed_id != $claimed_id || $response_claimed_id != $response['openid.identity']) {
+               $discovery = openid_discovery($response['openid.claimed_id']);
++              $uris = array();
+               if ($discovery && !empty($discovery['services'])) {
+-                $uris = array();
+                 foreach ($discovery['services'] as $discovered_service) {
+-                  if (in_array('http://specs.openid.net/auth/2.0/server', $discovered_service['types']) || in_array('http://specs.openid.net/auth/2.0/signon', $discovered_service['types'])) {
+-                    $uris[] = $discovered_service['uri'];
++                  if (!in_array('http://specs.openid.net/auth/2.0/server', $discovered_service['types']) && !in_array('http://specs.openid.net/auth/2.0/signon', $discovered_service['types'])) {
++                    continue;
+                   }
++                  // The OP-Local Identifier (if different than the Claimed
++                  // Identifier) must be present in the XRDS document.
++                  if ($response_claimed_id != $response['openid.identity'] && (!isset($discovered_service['identity']) || $discovered_service['identity'] != $response['openid.identity'])) {
++                    continue;
++                  }
++                  $uris[] = $discovered_service['uri'];
+                 }
+               }
+               if (!in_array($service['uri'], $uris)) {
+diff --git a/modules/openid/openid.test b/modules/openid/openid.test
+index 41af3f8..5f7493a 100644
+--- a/modules/openid/openid.test
++++ b/modules/openid/openid.test
+@@ -94,7 +94,7 @@ function testDiscovery() {
+     $identity = url('openid-test/yadis/xrds/dummy-user', array('absolute' => TRUE, 'fragment' => $this->randomName()));
+     // Tell openid_test.module to respond with this identifier. If the fragment
+     // part is present in the identifier, it should be retained.
+-    variable_set('openid_test_response', array('openid.claimed_id' => $identity));
++    variable_set('openid_test_response', array('openid.claimed_id' => $identity, 'openid.identity' => openid_normalize($identity)));
+     $this->addIdentity(url('openid-test/yadis/xrds/server', array('absolute' => TRUE)), 2, 'http://specs.openid.net/auth/2.0/identifier_select', $identity);
+     variable_set('openid_test_response', array());
+ 
+diff --git a/modules/openid/tests/openid_test.module b/modules/openid/tests/openid_test.module
+index bcf9f42..3d6e292 100644
+--- a/modules/openid/tests/openid_test.module
++++ b/modules/openid/tests/openid_test.module
+@@ -150,6 +150,7 @@ function openid_test_yadis_xrds() {
+           <Service priority="20">
+             <Type>http://specs.openid.net/auth/2.0/server</Type>
+             <URI>' . url('openid-test/endpoint', array('absolute' => TRUE)) . '</URI>
++            <LocalID>' . url('openid-test/yadis/xrds/server', array('absolute' => TRUE)) . '</LocalID>
+           </Service>';
+     }
+     elseif (arg(3) == 'delegate') {
+diff --git a/modules/overlay/overlay-parent.js b/modules/overlay/overlay-parent.js
+index 7452a51..7859821 100644
+--- a/modules/overlay/overlay-parent.js
++++ b/modules/overlay/overlay-parent.js
+@@ -390,6 +390,27 @@ Drupal.overlay.isExternalLink = function (url) {
+ };
+ 
+ /**
++ * Constructs an internal URL (relative to this site) from the provided path.
++ *
++ * For example, if the provided path is 'admin' and the site is installed at
++ * http://example.com/drupal, this function will return '/drupal/admin'.
++ *
++ * @param path
++ *   The internal path, without any leading slash.
++ *
++ * @return
++ *   The internal URL derived from the provided path, or null if a valid
++ *   internal path cannot be constructed (for example, if an attempt to create
++ *   an external link is detected).
++ */
++Drupal.overlay.getInternalUrl = function (path) {
++  var url = Drupal.settings.basePath + path;
++  if (!this.isExternalLink(url)) {
++    return url;
++  }
++};
++
++/**
+  * Event handler: resizes overlay according to the size of the parent window.
+  *
+  * @param event
+@@ -577,7 +598,7 @@ Drupal.overlay.eventhandlerOverrideLink = function (event) {
+       // If the link contains the overlay-restore class and the overlay-context
+       // state is set, also update the parent window's location.
+       var parentLocation = ($target.hasClass('overlay-restore') && typeof $.bbq.getState('overlay-context') == 'string')
+-        ? Drupal.settings.basePath + $.bbq.getState('overlay-context')
++        ? this.getInternalUrl($.bbq.getState('overlay-context'))
+         : null;
+       href = this.fragmentizeLink($target.get(0), parentLocation);
+       // Only override default behavior when left-clicking and user is not
+@@ -657,11 +678,15 @@ Drupal.overlay.eventhandlerOperateByURLFragment = function (event) {
+   }
+ 
+   // Get the overlay URL from the current URL fragment.
++  var internalUrl = null;
+   var state = $.bbq.getState('overlay');
+   if (state) {
++    internalUrl = this.getInternalUrl(state);
++  }
++  if (internalUrl) {
+     // Append render variable, so the server side can choose the right
+     // rendering and add child frame code to the page if needed.
+-    var url = $.param.querystring(Drupal.settings.basePath + state, { render: 'overlay' });
++    var url = $.param.querystring(internalUrl, { render: 'overlay' });
+ 
+     this.open(url);
+     this.resetActiveClass(this.getPath(Drupal.settings.basePath + state));
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index fcc9791..bf85576 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -2117,7 +2117,7 @@ protected function assertRenderedElement(array $element, $xpath, array $xpath_ar
+   }
+ 
+   /**
+-   * Tests caching of an empty render item.
++   * Tests caching of render items.
+    */
+   function testDrupalRenderCache() {
+     // Force a request via GET.
+@@ -2143,6 +2143,59 @@ function testDrupalRenderCache() {
+     drupal_render($element);
+     $this->assertFalse(isset($element['#printed']), 'Cache hit');
+ 
++    // Test that user 1 does not share the cache with other users who have the
++    // same roles, even when DRUPAL_CACHE_PER_ROLE is used.
++    $user1 = user_load(1);
++    $first_authenticated_user = $this->drupalCreateUser();
++    $second_authenticated_user = $this->drupalCreateUser();
++    $user1->roles = array_intersect_key($user1->roles, array(DRUPAL_AUTHENTICATED_RID => TRUE));
++    user_save($user1);
++    // Load all the accounts again, to make sure we have complete account
++    // objects.
++    $user1 = user_load(1);
++    $first_authenticated_user = user_load($first_authenticated_user->uid);
++    $second_authenticated_user = user_load($second_authenticated_user->uid);
++    $this->assertEqual($user1->roles, $first_authenticated_user->roles, 'User 1 has the same roles as an authenticated user.');
++    // Impersonate user 1 and render content that only user 1 should have
++    // permission to see.
++    $original_user = $GLOBALS['user'];
++    $original_session_state = drupal_save_session();
++    drupal_save_session(FALSE);
++    $GLOBALS['user'] = $user1;
++    $test_element = array(
++      '#cache' => array(
++        'keys' => array('test'),
++        'granularity' => DRUPAL_CACHE_PER_ROLE,
++      ),
++    );
++    $element = $test_element;
++    $element['#markup'] = 'content for user 1';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for user 1');
++    // Verify the cache is working by rendering the same element but with
++    // different markup passed in; the result should be the same.
++    $element = $test_element;
++    $element['#markup'] = 'should not be used';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for user 1');
++    // Verify that the first authenticated user does not see the same content
++    // as user 1.
++    $GLOBALS['user'] = $first_authenticated_user;
++    $element = $test_element;
++    $element['#markup'] = 'content for authenticated users';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for authenticated users');
++    // Verify that the second authenticated user shares the cache with the
++    // first authenticated user.
++    $GLOBALS['user'] = $second_authenticated_user;
++    $element = $test_element;
++    $element['#markup'] = 'should not be used';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for authenticated users');
++    // Restore the original logged-in user.
++    $GLOBALS['user'] = $original_user;
++    drupal_save_session($original_session_state);
++
+     // Restore the previous request method.
+     $_SERVER['REQUEST_METHOD'] = $request_method;
+   }
