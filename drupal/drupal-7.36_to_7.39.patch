@@ -1,0 +1,1534 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 039ab82..04cff86 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,32 @@
+ 
++Drupal 7.39, 2015-08-19
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-003.
++
++Drupal 7.38, 2015-06-17
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-002.
++
++Drupal 7.37, 2015-05-07
++-----------------------
++- Fixed a regression in Drupal 7.36 which caused certain kinds of content types
++  to become disabled if they were defined by a no-longer-enabled module.
++- Removed a confusing description regarding automatic time zone detection from
++  the user account form (minor UI and data structure change).
++- Allowed custom HTML tags with a dash in the name to pass through filter_xss()
++  when specified in the list of allowed tags.
++- Allowed hook_field_schema() implementations to specify indexes for fields
++  based on a fixed-length column prefix (rather than the entire column), as was
++  already allowed in hook_schema() implementations.
++- Fixed PDO exceptions on PostgreSQL when accessing invalid entity URLs.
++- Added a sites/all/libraries folder to the codebase, with instructions for
++  using it.
++- Added a description to the "Administer text formats and filters" permission
++  on the Permissions page (string change).
++- Numerous small bug fixes.
++- Numerous API documentation improvements.
++- Additional automated test coverage.
++
+ Drupal 7.36, 2015-04-01
+ -----------------------
+ - Added a 'file_public_schema' variable which allows modules that define
+diff --git a/includes/ajax.inc b/includes/ajax.inc
+index 6e8e277..50e8e28 100644
+--- a/includes/ajax.inc
++++ b/includes/ajax.inc
+@@ -230,6 +230,10 @@
+  *   functions.
+  */
+ function ajax_render($commands = array()) {
++  // Although ajax_deliver() does this, some contributed and custom modules
++  // render Ajax responses without using that delivery callback.
++  ajax_set_verification_header();
++
+   // Ajax responses aren't rendered with html.tpl.php, so we have to call
+   // drupal_get_css() and drupal_get_js() here, in order to have new files added
+   // during this request to be loaded by the page. We only want to send back
+@@ -487,6 +491,9 @@ function ajax_deliver($page_callback_result) {
+     }
+   }
+ 
++  // Let ajax.js know that this response is safe to process.
++  ajax_set_verification_header();
++
+   // Print the response.
+   $commands = ajax_prepare_response($page_callback_result);
+   $json = ajax_render($commands);
+@@ -577,6 +584,29 @@ function ajax_prepare_response($page_callback_result) {
+ }
+ 
+ /**
++ * Sets a response header for ajax.js to trust the response body.
++ *
++ * It is not safe to invoke Ajax commands within user-uploaded files, so this
++ * header protects against those being invoked.
++ *
++ * @see Drupal.ajax.options.success()
++ */
++function ajax_set_verification_header() {
++  $added = &drupal_static(__FUNCTION__);
++
++  // User-uploaded files cannot set any response headers, so a custom header is
++  // used to indicate to ajax.js that this response is safe. Note that most
++  // Ajax requests bound using the Form API will be protected by having the URL
++  // flagged as trusted in Drupal.settings, so this header is used only for
++  // things like custom markup that gets Ajax behaviors attached.
++  if (empty($added)) {
++    drupal_add_http_header('X-Drupal-Ajax-Token', '1');
++    // Avoid sending the header twice.
++    $added = TRUE;
++  }
++}
++
++/**
+  * Performs end-of-Ajax-request tasks.
+  *
+  * This function is the equivalent of drupal_page_footer(), but for Ajax
+@@ -764,7 +794,12 @@ function ajax_pre_render_element($element) {
+ 
+     $element['#attached']['js'][] = array(
+       'type' => 'setting',
+-      'data' => array('ajax' => array($element['#id'] => $settings)),
++      'data' => array(
++        'ajax' => array($element['#id'] => $settings),
++        'urlIsAjaxTrusted' => array(
++          $settings['url'] => TRUE,
++        ),
++      ),
+     );
+ 
+     // Indicate that Ajax processing was successful.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index b9d49de..e14626c 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.36');
++define('VERSION', '7.39');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/common.inc b/includes/common.inc
+index 0437ec1..ceac115 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -1522,7 +1522,7 @@ function _filter_xss_split($m, $store = FALSE) {
+     return '&lt;';
+   }
+ 
+-  if (!preg_match('%^<\s*(/\s*)?([a-zA-Z0-9]+)([^>]*)>?|(<!--.*?-->)$%', $string, $matches)) {
++  if (!preg_match('%^<\s*(/\s*)?([a-zA-Z0-9\-]+)([^>]*)>?|(<!--.*?-->)$%', $string, $matches)) {
+     // Seriously malformed.
+     return '';
+   }
+@@ -3802,7 +3802,7 @@ function drupal_load_stylesheet_content($contents, $optimize = FALSE) {
+ 
+   // Replaces @import commands with the actual stylesheet content.
+   // This happens recursively but omits external files.
+-  $contents = preg_replace_callback('/@import\s*(?:url\(\s*)?[\'"]?(?![a-z]+:)([^\'"\()]+)[\'"]?\s*\)?\s*;/', '_drupal_load_stylesheet', $contents);
++  $contents = preg_replace_callback('/@import\s*(?:url\(\s*)?[\'"]?(?![a-z]+:)(?!\/\/)([^\'"\()]+)[\'"]?\s*\)?\s*;/', '_drupal_load_stylesheet', $contents);
+   return $contents;
+ }
+ 
+@@ -6329,13 +6329,21 @@ function drupal_render_cid_parts($granularity = NULL) {
+   }
+ 
+   if (!empty($granularity)) {
++    $cache_per_role = $granularity & DRUPAL_CACHE_PER_ROLE;
++    $cache_per_user = $granularity & DRUPAL_CACHE_PER_USER;
++    // User 1 has special permissions outside of the role system, so when
++    // caching per role is requested, it should cache per user instead.
++    if ($user->uid == 1 && $cache_per_role) {
++      $cache_per_user = TRUE;
++      $cache_per_role = FALSE;
++    }
+     // 'PER_ROLE' and 'PER_USER' are mutually exclusive. 'PER_USER' can be a
+     // resource drag for sites with many users, so when a module is being
+     // equivocal, we favor the less expensive 'PER_ROLE' pattern.
+-    if ($granularity & DRUPAL_CACHE_PER_ROLE) {
++    if ($cache_per_role) {
+       $cid_parts[] = 'r.' . implode(',', array_keys($user->roles));
+     }
+-    elseif ($granularity & DRUPAL_CACHE_PER_USER) {
++    elseif ($cache_per_user) {
+       $cid_parts[] = "u.$user->uid";
+     }
+ 
+@@ -7138,6 +7146,23 @@ function _drupal_schema_initialize(&$schema, $module, $remove_descriptions = TRU
+ }
+ 
+ /**
++ * Retrieves the type for every field in a table schema.
++ *
++ * @param $table
++ *   The name of the table from which to retrieve type information.
++ *
++ * @return
++ *   An array of types, keyed by field name.
++ */
++function drupal_schema_field_types($table) {
++  $table_schema = drupal_get_schema($table);
++  foreach ($table_schema['fields'] as $field_name => $field_info) {
++    $field_types[$field_name] = isset($field_info['type']) ? $field_info['type'] : NULL;
++  }
++  return $field_types;
++}
++
++/**
+  * Retrieves a list of fields from a table schema.
+  *
+  * The returned list is suitable for use in an SQL query.
+@@ -7761,6 +7786,7 @@ function entity_get_info($entity_type = NULL) {
+         // Prepare entity schema fields SQL info for
+         // DrupalEntityControllerInterface::buildQuery().
+         if (isset($entity_info[$name]['base table'])) {
++          $entity_info[$name]['base table field types'] = drupal_schema_field_types($entity_info[$name]['base table']);
+           $entity_info[$name]['schema_fields_sql']['base table'] = drupal_schema_fields_sql($entity_info[$name]['base table']);
+           if (isset($entity_info[$name]['revision table'])) {
+             $entity_info[$name]['schema_fields_sql']['revision table'] = drupal_schema_fields_sql($entity_info[$name]['revision table']);
+diff --git a/includes/database/database.inc b/includes/database/database.inc
+index 01b6385..3d776b5 100644
+--- a/includes/database/database.inc
++++ b/includes/database/database.inc
+@@ -626,7 +626,7 @@ abstract class DatabaseConnection extends PDO {
+    *   A sanitized version of the query comment string.
+    */
+   protected function filterComment($comment = '') {
+-    return preg_replace('/(\/\*\s*)|(\s*\*\/)/', '', $comment);
++    return strtr($comment, array('*' => ' * '));
+   }
+ 
+   /**
+diff --git a/includes/entity.inc b/includes/entity.inc
+index 27434d0..62359a9 100644
+--- a/includes/entity.inc
++++ b/includes/entity.inc
+@@ -183,6 +183,11 @@ class DrupalDefaultEntityController implements DrupalEntityControllerInterface {
+       }
+     }
+ 
++    // Ensure integer entity IDs are valid.
++    if (!empty($ids)) {
++      $this->cleanIds($ids);
++    }
++
+     // Load any remaining entities from the database. This is the case if $ids
+     // is set to FALSE (so we load all entities), if there are any ids left to
+     // load, if loading a revision, or if $conditions was passed without $ids.
+@@ -224,6 +229,35 @@ class DrupalDefaultEntityController implements DrupalEntityControllerInterface {
+   }
+ 
+   /**
++   * Ensures integer entity IDs are valid.
++   *
++   * The identifier sanitization provided by this method has been introduced
++   * as Drupal used to rely on the database to facilitate this, which worked
++   * correctly with MySQL but led to errors with other DBMS such as PostgreSQL.
++   *
++   * @param array $ids
++   *   The entity IDs to verify. Non-integer IDs are removed from this array if
++   *   the entity type requires IDs to be integers.
++   */
++  protected function cleanIds(&$ids) {
++    $entity_info = entity_get_info($this->entityType);
++    if (isset($entity_info['base table field types'])) {
++      $id_type = $entity_info['base table field types'][$this->idKey];
++      if ($id_type == 'serial' || $id_type == 'int') {
++        $ids = array_filter($ids, array($this, 'filterId'));
++        $ids = array_map('intval', $ids);
++      }
++    }
++  }
++
++  /**
++   * Callback for array_filter that removes non-integer IDs.
++   */
++  protected function filterId($id) {
++    return is_numeric($id) && $id == (int) $id;
++  }
++
++  /**
+    * Builds the query to load the entity.
+    *
+    * This has full revision support. For entities requiring special queries,
+diff --git a/includes/form.inc b/includes/form.inc
+index 0d358c2..f7671be 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -1128,6 +1128,17 @@ function drupal_prepare_form($form_id, &$form, &$form_state) {
+   drupal_alter($hooks, $form, $form_state, $form_id);
+ }
+ 
++/**
++ * Helper function to call form_set_error() if there is a token error.
++ */
++function _drupal_invalid_token_set_form_error() {
++  $path = current_path();
++  $query = drupal_get_query_parameters();
++  $url = url($path, array('query' => $query));
++
++  // Setting this error will cause the form to fail validation.
++  form_set_error('form_token', t('The form has become outdated. Copy any unsaved work in the form below and then <a href="@link">reload this page</a>.', array('@link' => $url)));
++}
+ 
+ /**
+  * Validates user-submitted form data in the $form_state array.
+@@ -1162,16 +1173,11 @@ function drupal_validate_form($form_id, &$form, &$form_state) {
+   }
+ 
+   // If the session token was set by drupal_prepare_form(), ensure that it
+-  // matches the current user's session.
++  // matches the current user's session. This is duplicate to code in
++  // form_builder() but left to protect any custom form handling code.
+   if (isset($form['#token'])) {
+-    if (!drupal_valid_token($form_state['values']['form_token'], $form['#token'])) {
+-      $path = current_path();
+-      $query = drupal_get_query_parameters();
+-      $url = url($path, array('query' => $query));
+-
+-      // Setting this error will cause the form to fail validation.
+-      form_set_error('form_token', t('The form has become outdated. Copy any unsaved work in the form below and then <a href="@link">reload this page</a>.', array('@link' => $url)));
+-
++    if (!drupal_valid_token($form_state['values']['form_token'], $form['#token']) || !empty($form_state['invalid_token'])) {
++      _drupal_invalid_token_set_form_error();
+       // Stop here and don't run any further validation handlers, because they
+       // could invoke non-safe operations which opens the door for CSRF
+       // vulnerabilities.
+@@ -1827,6 +1833,20 @@ function form_builder($form_id, &$element, &$form_state) {
+     // from the POST data is set and matches the current form_id.
+     if ($form_state['programmed'] || (!empty($form_state['input']) && (isset($form_state['input']['form_id']) && ($form_state['input']['form_id'] == $form_id)))) {
+       $form_state['process_input'] = TRUE;
++      // If the session token was set by drupal_prepare_form(), ensure that it
++      // matches the current user's session.
++      $form_state['invalid_token'] = FALSE;
++      if (isset($element['#token'])) {
++        if (empty($form_state['input']['form_token']) || !drupal_valid_token($form_state['input']['form_token'], $element['#token'])) {
++          // Set an early form error to block certain input processing since that
++          // opens the door for CSRF vulnerabilities.
++          _drupal_invalid_token_set_form_error();
++          // This value is checked in _form_builder_handle_input_element().
++          $form_state['invalid_token'] = TRUE;
++          // Make sure file uploads do not get processed.
++          $_FILES = array();
++        }
++      }
+     }
+     else {
+       $form_state['process_input'] = FALSE;
+@@ -1930,6 +1950,18 @@ function form_builder($form_id, &$element, &$form_state) {
+       $element['#attributes']['enctype'] = 'multipart/form-data';
+     }
+ 
++    // Allow Ajax submissions to the form action to bypass verification. This is
++    // especially useful for multipart forms, which cannot be verified via a
++    // response header.
++    $element['#attached']['js'][] = array(
++      'type' => 'setting',
++      'data' => array(
++        'urlIsAjaxTrusted' => array(
++          $element['#action'] => TRUE,
++        ),
++      ),
++    );
++
+     // If a form contains a single textfield, and the ENTER key is pressed
+     // within it, Internet Explorer submits the form with no POST data
+     // identifying any submit button. Other browsers submit POST data as though
+@@ -1978,6 +2010,19 @@ function form_builder($form_id, &$element, &$form_state) {
+  * Adds the #name and #value properties of an input element before rendering.
+  */
+ function _form_builder_handle_input_element($form_id, &$element, &$form_state) {
++  static $safe_core_value_callbacks = array(
++    'form_type_token_value',
++    'form_type_textarea_value',
++    'form_type_textfield_value',
++    'form_type_checkbox_value',
++    'form_type_checkboxes_value',
++    'form_type_radios_value',
++    'form_type_password_confirm_value',
++    'form_type_select_value',
++    'form_type_tableselect_value',
++    'list_boolean_allowed_values_callback',
++  );
++
+   if (!isset($element['#name'])) {
+     $name = array_shift($element['#parents']);
+     $element['#name'] = $name;
+@@ -2056,7 +2101,14 @@ function _form_builder_handle_input_element($form_id, &$element, &$form_state) {
+       // property, optionally filtered through $value_callback.
+       if ($input_exists) {
+         if (function_exists($value_callback)) {
+-          $element['#value'] = $value_callback($element, $input, $form_state);
++          // Skip all value callbacks except safe ones like text if the CSRF
++          // token was invalid.
++          if (empty($form_state['invalid_token']) || in_array($value_callback, $safe_core_value_callbacks)) {
++            $element['#value'] = $value_callback($element, $input, $form_state);
++          }
++          else {
++            $input = NULL;
++          }
+         }
+         if (!isset($element['#value']) && isset($input)) {
+           $element['#value'] = $input;
+@@ -2662,8 +2714,8 @@ function _form_options_flatten($array) {
+  *   - #required: (optional) Whether the user needs to select an option (TRUE)
+  *     or not (FALSE). Defaults to FALSE.
+  *   - #empty_option: (optional) The label to show for the first default option.
+- *     By default, the label is automatically set to "- Please select -" for a
+- *     required field and "- None -" for an optional field.
++ *     By default, the label is automatically set to "- Select -" for a required
++ *     field and "- None -" for an optional field.
+  *   - #empty_value: (optional) The value for the first default option, which is
+  *     used to determine whether the user submitted a value or not.
+  *     - If #required is TRUE, this defaults to '' (an empty string).
+@@ -3911,6 +3963,29 @@ function theme_hidden($variables) {
+ }
+ 
+ /**
++ * Process function to prepare autocomplete data.
++ *
++ * @param $element
++ *   A textfield or other element with a #autocomplete_path.
++ *
++ * @return array
++ *   The processed form element.
++ */
++function form_process_autocomplete($element) {
++  $element['#autocomplete_input'] = array();
++  if ($element['#autocomplete_path'] && drupal_valid_path($element['#autocomplete_path'])) {
++    $element['#autocomplete_input']['#id'] = $element['#id'] .'-autocomplete';
++    // Force autocomplete to use non-clean URLs since this protects against the
++    // browser interpreting the path plus search string as an actual file.
++    $current_clean_url = isset($GLOBALS['conf']['clean_url']) ? $GLOBALS['conf']['clean_url'] : NULL;
++    $GLOBALS['conf']['clean_url'] = 0;
++    $element['#autocomplete_input']['#url_value'] = url($element['#autocomplete_path'], array('absolute' => TRUE));
++    $GLOBALS['conf']['clean_url'] = $current_clean_url;
++  }
++  return $element;
++}
++
++/**
+  * Returns HTML for a textfield form element.
+  *
+  * @param $variables
+@@ -3928,14 +4003,14 @@ function theme_textfield($variables) {
+   _form_set_class($element, array('form-text'));
+ 
+   $extra = '';
+-  if ($element['#autocomplete_path'] && drupal_valid_path($element['#autocomplete_path'])) {
++  if ($element['#autocomplete_path'] && !empty($element['#autocomplete_input'])) {
+     drupal_add_library('system', 'drupal.autocomplete');
+     $element['#attributes']['class'][] = 'form-autocomplete';
+ 
+     $attributes = array();
+     $attributes['type'] = 'hidden';
+-    $attributes['id'] = $element['#attributes']['id'] . '-autocomplete';
+-    $attributes['value'] = url($element['#autocomplete_path'], array('absolute' => TRUE));
++    $attributes['id'] = $element['#autocomplete_input']['#id'];
++    $attributes['value'] = $element['#autocomplete_input']['#url_value'];
+     $attributes['disabled'] = 'disabled';
+     $attributes['class'][] = 'autocomplete';
+     $extra = '<input' . drupal_attributes($attributes) . ' />';
+diff --git a/includes/install.core.inc b/includes/install.core.inc
+index 38ad724..e5a6586 100644
+--- a/includes/install.core.inc
++++ b/includes/install.core.inc
+@@ -362,7 +362,8 @@ function install_run_tasks(&$install_state) {
+  * Runs an individual installation task.
+  *
+  * @param $task
+- *   An array of information about the task to be run.
++ *   An array of information about the task to be run as returned by
++ *   hook_install_tasks().
+  * @param $install_state
+  *   An array of information about the current installation state. This is
+  *   passed in by reference so that it can be modified by the task.
+@@ -478,11 +479,15 @@ function install_run_task($task, &$install_state) {
+  * the page request evolves (for example, if an installation profile hasn't
+  * been selected yet, we don't yet know which profile tasks need to be run).
+  *
++ * You can override this using hook_install_tasks() or
++ * hook_install_tasks_alter().
++ *
+  * @param $install_state
+  *   An array of information about the current installation state.
+  *
+  * @return
+- *   A list of tasks to be performed, with associated metadata.
++ *   A list of tasks to be performed, with associated metadata as returned by
++ *   hook_install_tasks().
+  */
+ function install_tasks_to_perform($install_state) {
+   // Start with a list of all currently available tasks.
+diff --git a/includes/menu.inc b/includes/menu.inc
+index 8e26b6d..0e9c977 100644
+--- a/includes/menu.inc
++++ b/includes/menu.inc
+@@ -1487,7 +1487,7 @@ function menu_tree_collect_node_links(&$tree, &$node_links) {
+  *   menu_tree_collect_node_links().
+  */
+ function menu_tree_check_access(&$tree, $node_links = array()) {
+-  if ($node_links) {
++  if ($node_links && (user_access('access content') || user_access('bypass node access'))) {
+     $nids = array_keys($node_links);
+     $select = db_select('node', 'n');
+     $select->addField('n', 'nid');
+diff --git a/misc/ajax.js b/misc/ajax.js
+index 01b894d..bb4a6e1 100644
+--- a/misc/ajax.js
++++ b/misc/ajax.js
+@@ -14,6 +14,8 @@
+ 
+ Drupal.ajax = Drupal.ajax || {};
+ 
++Drupal.settings.urlIsAjaxTrusted = Drupal.settings.urlIsAjaxTrusted || {};
++
+ /**
+  * Attaches the Ajax behavior to each Ajax form element.
+  */
+@@ -130,6 +132,11 @@ Drupal.ajax = function (base, element, element_settings) {
+   // 5. /nojs# - Followed by a fragment.
+   //      E.g.: path/nojs#myfragment
+   this.url = element_settings.url.replace(/\/nojs(\/|$|\?|&|#)/g, '/ajax$1');
++  // If the 'nojs' version of the URL is trusted, also trust the 'ajax' version.
++  if (Drupal.settings.urlIsAjaxTrusted[element_settings.url]) {
++    Drupal.settings.urlIsAjaxTrusted[this.url] = true;
++  }
++
+   this.wrapper = '#' + element_settings.wrapper;
+ 
+   // If there isn't a form, jQuery.ajax() will be used instead, allowing us to
+@@ -155,18 +162,36 @@ Drupal.ajax = function (base, element, element_settings) {
+       ajax.ajaxing = true;
+       return ajax.beforeSend(xmlhttprequest, options);
+     },
+-    success: function (response, status) {
++    success: function (response, status, xmlhttprequest) {
+       // Sanity check for browser support (object expected).
+       // When using iFrame uploads, responses must be returned as a string.
+       if (typeof response == 'string') {
+         response = $.parseJSON(response);
+       }
++
++      // Prior to invoking the response's commands, verify that they can be
++      // trusted by checking for a response header. See
++      // ajax_set_verification_header() for details.
++      // - Empty responses are harmless so can bypass verification. This avoids
++      //   an alert message for server-generated no-op responses that skip Ajax
++      //   rendering.
++      // - Ajax objects with trusted URLs (e.g., ones defined server-side via
++      //   #ajax) can bypass header verification. This is especially useful for
++      //   Ajax with multipart forms. Because IFRAME transport is used, the
++      //   response headers cannot be accessed for verification.
++      if (response !== null && !Drupal.settings.urlIsAjaxTrusted[ajax.url]) {
++        if (xmlhttprequest.getResponseHeader('X-Drupal-Ajax-Token') !== '1') {
++          var customMessage = Drupal.t("The response failed verification so will not be processed.");
++          return ajax.error(xmlhttprequest, ajax.url, customMessage);
++        }
++      }
++
+       return ajax.success(response, status);
+     },
+-    complete: function (response, status) {
++    complete: function (xmlhttprequest, status) {
+       ajax.ajaxing = false;
+       if (status == 'error' || status == 'parsererror') {
+-        return ajax.error(response, ajax.url);
++        return ajax.error(xmlhttprequest, ajax.url);
+       }
+     },
+     dataType: 'json',
+@@ -175,6 +200,9 @@ Drupal.ajax = function (base, element, element_settings) {
+ 
+   // Bind the ajaxSubmit function to the element event.
+   $(ajax.element).bind(element_settings.event, function (event) {
++    if (!Drupal.settings.urlIsAjaxTrusted[ajax.url] && !Drupal.urlIsLocal(ajax.url)) {
++      throw new Error(Drupal.t('The callback URL is not local and not trusted: !url', {'!url': ajax.url}));
++    }
+     return ajax.eventResponse(this, event);
+   });
+ 
+@@ -447,8 +475,8 @@ Drupal.ajax.prototype.getEffect = function (response) {
+ /**
+  * Handler for the form redirection error.
+  */
+-Drupal.ajax.prototype.error = function (response, uri) {
+-  alert(Drupal.ajaxError(response, uri));
++Drupal.ajax.prototype.error = function (xmlhttprequest, uri, customMessage) {
++  alert(Drupal.ajaxError(xmlhttprequest, uri, customMessage));
+   // Remove the progress element.
+   if (this.progress.element) {
+     $(this.progress.element).remove();
+@@ -462,7 +490,7 @@ Drupal.ajax.prototype.error = function (response, uri) {
+   $(this.element).removeClass('progress-disabled').removeAttr('disabled');
+   // Reattach behaviors, if they were detached in beforeSerialize().
+   if (this.form) {
+-    var settings = response.settings || this.settings || Drupal.settings;
++    var settings = this.settings || Drupal.settings;
+     Drupal.attachBehaviors(this.form, settings);
+   }
+ };
+diff --git a/misc/autocomplete.js b/misc/autocomplete.js
+index 5679081..d71441b 100644
+--- a/misc/autocomplete.js
++++ b/misc/autocomplete.js
+@@ -271,8 +271,11 @@ Drupal.ACDB.prototype.search = function (searchString) {
+   var db = this;
+   this.searchString = searchString;
+ 
+-  // See if this string needs to be searched for anyway.
+-  searchString = searchString.replace(/^\s+|\s+$/, '');
++  // See if this string needs to be searched for anyway. The pattern ../ is
++  // stripped since it may be misinterpreted by the browser.
++  searchString = searchString.replace(/^\s+|\.{2,}\/|\s+$/g, '');
++  // Skip empty search strings, or search strings ending with a comma, since
++  // that is the separator between search terms.
+   if (searchString.length <= 0 ||
+     searchString.charAt(searchString.length - 1) == ',') {
+     return;
+diff --git a/misc/drupal.js b/misc/drupal.js
+index 643baa1..427c4a1 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -270,6 +270,72 @@ Drupal.formatPlural = function (count, singular, plural, args, options) {
+ };
+ 
+ /**
++ * Returns the passed in URL as an absolute URL.
++ *
++ * @param url
++ *   The URL string to be normalized to an absolute URL.
++ *
++ * @return
++ *   The normalized, absolute URL.
++ *
++ * @see https://github.com/angular/angular.js/blob/v1.4.4/src/ng/urlUtils.js
++ * @see https://grack.com/blog/2009/11/17/absolutizing-url-in-javascript
++ * @see https://github.com/jquery/jquery-ui/blob/1.11.4/ui/tabs.js#L53
++ */
++Drupal.absoluteUrl = function (url) {
++  var urlParsingNode = document.createElement('a');
++
++  // Decode the URL first; this is required by IE <= 6. Decoding non-UTF-8
++  // strings may throw an exception.
++  try {
++    url = decodeURIComponent(url);
++  } catch (e) {}
++
++  urlParsingNode.setAttribute('href', url);
++
++  // IE <= 7 normalizes the URL when assigned to the anchor node similar to
++  // the other browsers.
++  return urlParsingNode.cloneNode(false).href;
++};
++
++/**
++ * Returns true if the URL is within Drupal's base path.
++ *
++ * @param url
++ *   The URL string to be tested.
++ *
++ * @return
++ *   Boolean true if local.
++ *
++ * @see https://github.com/jquery/jquery-ui/blob/1.11.4/ui/tabs.js#L58
++ */
++Drupal.urlIsLocal = function (url) {
++  // Always use browser-derived absolute URLs in the comparison, to avoid
++  // attempts to break out of the base path using directory traversal.
++  var absoluteUrl = Drupal.absoluteUrl(url);
++  var protocol = location.protocol;
++
++  // Consider URLs that match this site's base URL but use HTTPS instead of HTTP
++  // as local as well.
++  if (protocol === 'http:' && absoluteUrl.indexOf('https:') === 0) {
++    protocol = 'https:';
++  }
++  var baseUrl = protocol + '//' + location.host + Drupal.settings.basePath.slice(0, -1);
++
++  // Decoding non-UTF-8 strings may throw an exception.
++  try {
++    absoluteUrl = decodeURIComponent(absoluteUrl);
++  } catch (e) {}
++  try {
++    baseUrl = decodeURIComponent(baseUrl);
++  } catch (e) {}
++
++  // The given URL matches the site's base URL, or has a path under the site's
++  // base URL.
++  return absoluteUrl === baseUrl || absoluteUrl.indexOf(baseUrl + '/') === 0;
++};
++
++/**
+  * Generate the themed representation of a Drupal object.
+  *
+  * All requests for themed output must go through this function. It examines
+@@ -350,7 +416,7 @@ Drupal.getSelection = function (element) {
+ /**
+  * Build an error message from an Ajax response.
+  */
+-Drupal.ajaxError = function (xmlhttp, uri) {
++Drupal.ajaxError = function (xmlhttp, uri, customMessage) {
+   var statusCode, statusText, pathText, responseText, readyStateText, message;
+   if (xmlhttp.status) {
+     statusCode = "\n" + Drupal.t("An AJAX HTTP error occurred.") +  "\n" + Drupal.t("HTTP Result Code: !status", {'!status': xmlhttp.status});
+@@ -383,7 +449,10 @@ Drupal.ajaxError = function (xmlhttp, uri) {
+   // We don't need readyState except for status == 0.
+   readyStateText = xmlhttp.status == 0 ? ("\n" + Drupal.t("ReadyState: !readyState", {'!readyState': xmlhttp.readyState})) : "";
+ 
+-  message = statusCode + pathText + statusText + responseText + readyStateText;
++  // Additional message beyond what the xmlhttp object provides.
++  customMessage = customMessage ? ("\n" + Drupal.t("CustomMessage: !customMessage", {'!customMessage': customMessage})) : "";
++
++  message = statusCode + pathText + statusText + customMessage + responseText + readyStateText;
+   return message;
+ };
+ 
+diff --git a/modules/field/modules/field_sql_storage/field_sql_storage.module b/modules/field/modules/field_sql_storage/field_sql_storage.module
+index c7201dd..842893a 100644
+--- a/modules/field/modules/field_sql_storage/field_sql_storage.module
++++ b/modules/field/modules/field_sql_storage/field_sql_storage.module
+@@ -223,7 +223,17 @@ function _field_sql_storage_schema($field) {
+   foreach ($field['indexes'] as $index_name => $columns) {
+     $real_name = _field_sql_storage_indexname($field['field_name'], $index_name);
+     foreach ($columns as $column_name) {
+-      $current['indexes'][$real_name][] = _field_sql_storage_columnname($field['field_name'], $column_name);
++      // Indexes can be specified as either a column name or an array with
++      // column name and length. Allow for either case.
++      if (is_array($column_name)) {
++        $current['indexes'][$real_name][] = array(
++          _field_sql_storage_columnname($field['field_name'], $column_name[0]),
++          $column_name[1],
++        );
++      }
++      else {
++        $current['indexes'][$real_name][] = _field_sql_storage_columnname($field['field_name'], $column_name);
++      }
+     }
+   }
+ 
+@@ -332,7 +342,17 @@ function field_sql_storage_field_storage_update_field($field, $prior_field, $has
+         $real_name = _field_sql_storage_indexname($field['field_name'], $name);
+         $real_columns = array();
+         foreach ($columns as $column_name) {
+-          $real_columns[] = _field_sql_storage_columnname($field['field_name'], $column_name);
++          // Indexes can be specified as either a column name or an array with
++          // column name and length. Allow for either case.
++          if (is_array($column_name)) {
++            $real_columns[] = array(
++              _field_sql_storage_columnname($field['field_name'], $column_name[0]),
++              $column_name[1],
++            );
++          }
++          else {
++            $real_columns[] = _field_sql_storage_columnname($field['field_name'], $column_name);
++          }
+         }
+         db_add_index($table, $real_name, $real_columns);
+         db_add_index($revision_table, $real_name, $real_columns);
+diff --git a/modules/field/modules/field_sql_storage/field_sql_storage.test b/modules/field/modules/field_sql_storage/field_sql_storage.test
+index 072739c..7c88ac7 100644
+--- a/modules/field/modules/field_sql_storage/field_sql_storage.test
++++ b/modules/field/modules/field_sql_storage/field_sql_storage.test
+@@ -355,14 +355,14 @@ class FieldSqlStorageTestCase extends DrupalWebTestCase {
+     field_attach_insert('test_entity', $entity);
+ 
+     // Add an index
+-    $field = array('field_name' => $field_name, 'indexes' => array('value' => array('value')));
++    $field = array('field_name' => $field_name, 'indexes' => array('value' => array(array('value', 255))));
+     field_update_field($field);
+     foreach ($tables as $table) {
+       $this->assertTrue(Database::getConnection()->schema()->indexExists($table, "{$field_name}_value"), format_string("Index on value created in %table", array('%table' => $table)));
+     }
+ 
+     // Add a different index, removing the existing custom one.
+-    $field = array('field_name' => $field_name, 'indexes' => array('value_format' => array('value', 'format')));
++    $field = array('field_name' => $field_name, 'indexes' => array('value_format' => array(array('value', 127), array('format', 127))));
+     field_update_field($field);
+     foreach ($tables as $table) {
+       $this->assertTrue(Database::getConnection()->schema()->indexExists($table, "{$field_name}_value_format"), format_string("Index on value_format created in %table", array('%table' => $table)));
+diff --git a/modules/field_ui/field_ui.admin.inc b/modules/field_ui/field_ui.admin.inc
+index 5d74a5c..7d09d6f 100644
+--- a/modules/field_ui/field_ui.admin.inc
++++ b/modules/field_ui/field_ui.admin.inc
+@@ -2105,6 +2105,10 @@ function field_ui_next_destination($entity_type, $bundle) {
+   $destinations = !empty($_REQUEST['destinations']) ? $_REQUEST['destinations'] : array();
+   if (!empty($destinations)) {
+     unset($_REQUEST['destinations']);
++  }
++  // Remove any external URLs.
++  $destinations = array_diff($destinations, array_filter($destinations, 'url_is_external'));
++  if ($destinations) {
+     return field_ui_get_destinations($destinations);
+   }
+   $admin_path = _field_ui_bundle_admin_path($entity_type, $bundle);
+diff --git a/modules/field_ui/field_ui.test b/modules/field_ui/field_ui.test
+index 21767d6..8c42aa6 100644
+--- a/modules/field_ui/field_ui.test
++++ b/modules/field_ui/field_ui.test
+@@ -445,6 +445,19 @@ class FieldUIManageFieldsTestCase extends FieldUITestCase {
+     $this->assertText(t('The machine-readable name is already in use. It must be unique.'));
+     $this->assertUrl($url, array(), 'Stayed on the same page.');
+   }
++
++  /**
++   * Tests that external URLs in the 'destinations' query parameter are blocked.
++   */
++  function testExternalDestinations() {
++    $path = 'admin/structure/types/manage/article/fields/field_tags/field-settings';
++    $options = array(
++      'query' => array('destinations' => array('http://example.com')),
++    );
++    $this->drupalPost($path, NULL, t('Save field settings'), $options);
++
++    $this->assertUrl('admin/structure/types/manage/article/fields', array(), 'Stayed on the same site.');
++  }
+ }
+ 
+ /**
+diff --git a/modules/file/tests/file.test b/modules/file/tests/file.test
+index 33d7afd..5c19d00 100644
+--- a/modules/file/tests/file.test
++++ b/modules/file/tests/file.test
+@@ -377,6 +377,18 @@ class FileManagedFileElementTestCase extends FileFieldTestCase {
+         $this->drupalPost($path, array(), t('Save'));
+         $this->assertRaw(t('The file id is %fid.', array('%fid' => 0)), 'Submitted without a file.');
+ 
++        // Submit with a file, but with an invalid form token. Ensure the file
++        // was not saved.
++        $last_fid_prior = $this->getLastFileId();
++        $edit = array(
++          'files[' . $input_base_name . ']' => drupal_realpath($test_file->uri),
++          'form_token' => 'invalid token',
++        );
++        $this->drupalPost($path, $edit, t('Save'));
++        $this->assertText('The form has become outdated. Copy any unsaved work in the form below');
++        $last_fid = $this->getLastFileId();
++        $this->assertEqual($last_fid_prior, $last_fid, 'File was not saved when uploaded with an invalid form token.');
++
+         // Submit a new file, without using the Upload button.
+         $last_fid_prior = $this->getLastFileId();
+         $edit = array('files[' . $input_base_name . ']' => drupal_realpath($test_file->uri));
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 74621f1..f4bab9e 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -340,6 +340,7 @@ function filter_admin_format_title($format) {
+ function filter_permission() {
+   $perms['administer filters'] = array(
+     'title' => t('Administer text formats and filters'),
++    'description' => t('Define how text is handled by combining filters into <a href="@url">text formats</a>.', array('@url' => url('admin/config/content/formats'))),
+     'restrict access' => TRUE,
+   );
+ 
+diff --git a/modules/filter/filter.test b/modules/filter/filter.test
+index fe9cfc3..ddea6af 100644
+--- a/modules/filter/filter.test
++++ b/modules/filter/filter.test
+@@ -1148,7 +1148,7 @@ class FilterUnitTestCase extends DrupalUnitTestCase {
+     // Setup dummy filter object.
+     $filter = new stdClass();
+     $filter->settings = array(
+-      'allowed_html' => '<a> <em> <strong> <cite> <blockquote> <code> <ul> <ol> <li> <dl> <dt> <dd>',
++      'allowed_html' => '<a> <em> <strong> <cite> <blockquote> <code> <ul> <ol> <li> <dl> <dt> <dd> <test-element>',
+       'filter_html_help' => 1,
+       'filter_html_nofollow' => 0,
+     );
+@@ -1184,6 +1184,10 @@ class FilterUnitTestCase extends DrupalUnitTestCase {
+ 
+     $f = _filter_html('<code onerror>&nbsp;</code>', $filter);
+     $this->assertNoNormalized($f, 'onerror', 'HTML filter should remove empty on* attributes on default.');
++
++    // Custom tags are supported and should be allowed through.
++    $f = _filter_html('<test-element></test-element>', $filter);
++    $this->assertNormalized($f, 'test-element', 'HTML filter should allow custom elements.');
+   }
+ 
+   /**
+diff --git a/modules/node/node.install b/modules/node/node.install
+index 76c2aec..0b0a7bd 100644
+--- a/modules/node/node.install
++++ b/modules/node/node.install
+@@ -934,5 +934,15 @@ function node_update_7014() {
+ }
+ 
+ /**
++ * Enable node types that may have been erroneously disabled in Drupal 7.36.
++ */
++function node_update_7015() {
++  db_update('node_type')
++    ->fields(array('disabled' => 0))
++    ->condition('base', 'node_content')
++    ->execute();
++}
++
++/**
+  * @} End of "addtogroup updates-7.x-extra".
+  */
+diff --git a/modules/node/node.module b/modules/node/node.module
+index fd848e2..7a6246d 100644
+--- a/modules/node/node.module
++++ b/modules/node/node.module
+@@ -740,9 +740,11 @@ function _node_types_build($rebuild = FALSE) {
+     $type_db = $type_object->type;
+     // Original disabled value.
+     $disabled = $type_object->disabled;
+-    // Check for node types either from disabled modules or otherwise not defined
+-    // and mark as disabled.
+-    if (empty($type_object->custom) && empty($_node_types->types[$type_db])) {
++    // Check for node types from disabled modules and mark their types for removal.
++    // Types defined by the node module in the database (rather than by a separate
++    // module using hook_node_info) have a base value of 'node_content'. The isset()
++    // check prevents errors on old (pre-Drupal 7) databases.
++    if (isset($type_object->base) && $type_object->base != 'node_content' && empty($_node_types->types[$type_db])) {
+       $type_object->disabled = TRUE;
+     }
+     if (isset($_node_types->types[$type_db])) {
+diff --git a/modules/openid/openid.module b/modules/openid/openid.module
+index a28f452..a52dbc3 100644
+--- a/modules/openid/openid.module
++++ b/modules/openid/openid.module
+@@ -365,14 +365,20 @@ function openid_complete($response = array()) {
+             // to the OpenID Provider, we need to do discovery on the returned
+             // identififer to make sure that the provider is authorized to
+             // respond on behalf of this.
+-            if ($response_claimed_id != $claimed_id) {
++            if ($response_claimed_id != $claimed_id || $response_claimed_id != $response['openid.identity']) {
+               $discovery = openid_discovery($response['openid.claimed_id']);
++              $uris = array();
+               if ($discovery && !empty($discovery['services'])) {
+-                $uris = array();
+                 foreach ($discovery['services'] as $discovered_service) {
+-                  if (in_array('http://specs.openid.net/auth/2.0/server', $discovered_service['types']) || in_array('http://specs.openid.net/auth/2.0/signon', $discovered_service['types'])) {
+-                    $uris[] = $discovered_service['uri'];
++                  if (!in_array('http://specs.openid.net/auth/2.0/server', $discovered_service['types']) && !in_array('http://specs.openid.net/auth/2.0/signon', $discovered_service['types'])) {
++                    continue;
+                   }
++                  // The OP-Local Identifier (if different than the Claimed
++                  // Identifier) must be present in the XRDS document.
++                  if ($response_claimed_id != $response['openid.identity'] && (!isset($discovered_service['identity']) || $discovered_service['identity'] != $response['openid.identity'])) {
++                    continue;
++                  }
++                  $uris[] = $discovered_service['uri'];
+                 }
+               }
+               if (!in_array($service['uri'], $uris)) {
+diff --git a/modules/openid/openid.test b/modules/openid/openid.test
+index 41af3f8..5f7493a 100644
+--- a/modules/openid/openid.test
++++ b/modules/openid/openid.test
+@@ -94,7 +94,7 @@ class OpenIDFunctionalTestCase extends OpenIDWebTestCase {
+     $identity = url('openid-test/yadis/xrds/dummy-user', array('absolute' => TRUE, 'fragment' => $this->randomName()));
+     // Tell openid_test.module to respond with this identifier. If the fragment
+     // part is present in the identifier, it should be retained.
+-    variable_set('openid_test_response', array('openid.claimed_id' => $identity));
++    variable_set('openid_test_response', array('openid.claimed_id' => $identity, 'openid.identity' => openid_normalize($identity)));
+     $this->addIdentity(url('openid-test/yadis/xrds/server', array('absolute' => TRUE)), 2, 'http://specs.openid.net/auth/2.0/identifier_select', $identity);
+     variable_set('openid_test_response', array());
+ 
+diff --git a/modules/openid/tests/openid_test.module b/modules/openid/tests/openid_test.module
+index bcf9f42..3d6e292 100644
+--- a/modules/openid/tests/openid_test.module
++++ b/modules/openid/tests/openid_test.module
+@@ -150,6 +150,7 @@ function openid_test_yadis_xrds() {
+           <Service priority="20">
+             <Type>http://specs.openid.net/auth/2.0/server</Type>
+             <URI>' . url('openid-test/endpoint', array('absolute' => TRUE)) . '</URI>
++            <LocalID>' . url('openid-test/yadis/xrds/server', array('absolute' => TRUE)) . '</LocalID>
+           </Service>';
+     }
+     elseif (arg(3) == 'delegate') {
+diff --git a/modules/overlay/overlay-parent.js b/modules/overlay/overlay-parent.js
+index 7452a51..7859821 100644
+--- a/modules/overlay/overlay-parent.js
++++ b/modules/overlay/overlay-parent.js
+@@ -390,6 +390,27 @@ Drupal.overlay.isExternalLink = function (url) {
+ };
+ 
+ /**
++ * Constructs an internal URL (relative to this site) from the provided path.
++ *
++ * For example, if the provided path is 'admin' and the site is installed at
++ * http://example.com/drupal, this function will return '/drupal/admin'.
++ *
++ * @param path
++ *   The internal path, without any leading slash.
++ *
++ * @return
++ *   The internal URL derived from the provided path, or null if a valid
++ *   internal path cannot be constructed (for example, if an attempt to create
++ *   an external link is detected).
++ */
++Drupal.overlay.getInternalUrl = function (path) {
++  var url = Drupal.settings.basePath + path;
++  if (!this.isExternalLink(url)) {
++    return url;
++  }
++};
++
++/**
+  * Event handler: resizes overlay according to the size of the parent window.
+  *
+  * @param event
+@@ -577,7 +598,7 @@ Drupal.overlay.eventhandlerOverrideLink = function (event) {
+       // If the link contains the overlay-restore class and the overlay-context
+       // state is set, also update the parent window's location.
+       var parentLocation = ($target.hasClass('overlay-restore') && typeof $.bbq.getState('overlay-context') == 'string')
+-        ? Drupal.settings.basePath + $.bbq.getState('overlay-context')
++        ? this.getInternalUrl($.bbq.getState('overlay-context'))
+         : null;
+       href = this.fragmentizeLink($target.get(0), parentLocation);
+       // Only override default behavior when left-clicking and user is not
+@@ -657,11 +678,15 @@ Drupal.overlay.eventhandlerOperateByURLFragment = function (event) {
+   }
+ 
+   // Get the overlay URL from the current URL fragment.
++  var internalUrl = null;
+   var state = $.bbq.getState('overlay');
+   if (state) {
++    internalUrl = this.getInternalUrl(state);
++  }
++  if (internalUrl) {
+     // Append render variable, so the server side can choose the right
+     // rendering and add child frame code to the page if needed.
+-    var url = $.param.querystring(Drupal.settings.basePath + state, { render: 'overlay' });
++    var url = $.param.querystring(internalUrl, { render: 'overlay' });
+ 
+     this.open(url);
+     this.resetActiveClass(this.getPath(Drupal.settings.basePath + state));
+diff --git a/modules/poll/poll.module b/modules/poll/poll.module
+index d3d64b1..bfc72bf 100644
+--- a/modules/poll/poll.module
++++ b/modules/poll/poll.module
+@@ -191,7 +191,6 @@ function poll_node_info() {
+       'base' => 'poll',
+       'description' => t('A <em>poll</em> is a question with a set of possible responses. A <em>poll</em>, once created, automatically provides a simple running count of the number of votes received for each response.'),
+       'title_label' => t('Question'),
+-      'has_body' => FALSE,
+     )
+   );
+ }
+diff --git a/modules/profile/profile.test b/modules/profile/profile.test
+index 42a1a42..6cb0739 100644
+--- a/modules/profile/profile.test
++++ b/modules/profile/profile.test
+@@ -339,12 +339,22 @@ class ProfileTestAutocomplete extends ProfileTestCase {
+     $this->setProfileField($field, $field['value']);
+ 
+     // Set some html for what we want to see in the page output later.
+-    $autocomplete_html = '<input type="hidden" id="' . drupal_html_id('edit-' . $field['form_name'] . '-autocomplete') . '" value="' . url('profile/autocomplete/' . $field['fid'], array('absolute' => TRUE)) . '" disabled="disabled" class="autocomplete" />';
+-    $field_html = '<input type="text" maxlength="255" name="' . $field['form_name'] . '" id="' . drupal_html_id('edit-' . $field['form_name']) . '" size="60" value="' . $field['value'] . '" class="form-text form-autocomplete required" />';
++    // Autocomplete always uses non-clean URLs.
++    $current_clean_url = isset($GLOBALS['conf']['clean_url']) ? $GLOBALS['conf']['clean_url'] : NULL;
++    $GLOBALS['conf']['clean_url'] = 0;
++    $autocomplete_url = url('profile/autocomplete/' . $field['fid'], array('absolute' => TRUE));
++    $GLOBALS['conf']['clean_url'] = $current_clean_url;
++    $autocomplete_id = drupal_html_id('edit-' . $field['form_name'] . '-autocomplete');
++    $autocomplete_html = '<input type="hidden" id="' . $autocomplete_id . '" value="' . $autocomplete_url . '" disabled="disabled" class="autocomplete" />';
+ 
+     // Check that autocompletion html is found on the user's profile edit page.
+     $this->drupalGet('user/' . $this->admin_user->uid . '/edit/' . $category);
+     $this->assertRaw($autocomplete_html, 'Autocomplete found.');
++    $this->assertFieldByXPath(
++      '//input[@type="text" and @name="' . $field['form_name'] . '" and contains(@class, "form-autocomplete")]',
++      '',
++      'Text input field found'
++    );
+     $this->assertRaw('misc/autocomplete.js', 'Autocomplete JavaScript found.');
+     $this->assertRaw('class="form-text form-autocomplete"', 'Autocomplete form element class found.');
+ 
+diff --git a/modules/simpletest/drupal_web_test_case.php b/modules/simpletest/drupal_web_test_case.php
+index 271efff..b67c478 100644
+--- a/modules/simpletest/drupal_web_test_case.php
++++ b/modules/simpletest/drupal_web_test_case.php
+@@ -2221,6 +2221,7 @@ class DrupalWebTestCase extends DrupalTestCase {
+ 
+     // Submit the POST request.
+     $return = drupal_json_decode($this->drupalPost(NULL, $edit, array('path' => $ajax_path, 'triggering_element' => $triggering_element), $options, $headers, $form_html_id, $extra_post));
++    $this->assertIdentical($this->drupalGetHeader('X-Drupal-Ajax-Token'), '1', 'Ajax response header found.');
+ 
+     // Change the page content by applying the returned commands.
+     if (!empty($ajax_settings) && !empty($return)) {
+@@ -2257,8 +2258,13 @@ class DrupalWebTestCase extends DrupalTestCase {
+             if ($wrapperNode) {
+               // ajax.js adds an enclosing DIV to work around a Safari bug.
+               $newDom = new DOMDocument();
++              // DOM can load HTML soup. But, HTML soup can throw warnings,
++              // suppress them.
+               $newDom->loadHTML('<div>' . $command['data'] . '</div>');
+-              $newNode = $dom->importNode($newDom->documentElement->firstChild->firstChild, TRUE);
++              // Suppress warnings thrown when duplicate HTML IDs are
++              // encountered. This probably means we are replacing an element
++              // with the same ID.
++              $newNode = @$dom->importNode($newDom->documentElement->firstChild->firstChild, TRUE);
+               $method = isset($command['method']) ? $command['method'] : $ajax_settings['method'];
+               // The "method" is a jQuery DOM manipulation function. Emulate
+               // each one using PHP's DOMNode API.
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css b/modules/simpletest/files/css_test_files/css_input_with_import.css
+index 87afcb3..484db83 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css
+@@ -1,5 +1,7 @@
+ 
+ 
++@import url("http://example.com/style.css");
++@import url("//example.com/style.css");
+ @import "import1.css";
+ @import "import2.css";
+ 
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css b/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
+index a05f939..a2af7b3 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css.optimized.css
+@@ -1,4 +1,4 @@
+-ul,select{font:1em/160% Verdana,sans-serif;color:#494949;}.ui-icon{background-image:url(images/icon.png);}.data .double-quote{background-image:url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");}.data .single-quote{background-image:url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKAAH//Z');}.data .no-quote{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACEAAAAEAQAAAAAo/mtHAAAAIElEQVQIHWMRnWHwcRNLN8NZ7QYWwT8PlBlYsgqVBRsAankIMw5MtnoAAAAASUVORK5CYII=);}
++@import url("http://example.com/style.css");@import url("//example.com/style.css");ul,select{font:1em/160% Verdana,sans-serif;color:#494949;}.ui-icon{background-image:url(images/icon.png);}.data .double-quote{background-image:url("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");}.data .single-quote{background-image:url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACAWGBwYFCAcGhwkIiAmMFA0MCwsMGJGSjpQdGZ6eHJmcG6AkLicgIiuim5woNqirr7EztDOfJri8uDI8LjKzsb/2wBDASIkJDAqMF40NF7GhHCExsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsb/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AKAAH//Z');}.data .no-quote{background-image:url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACEAAAAEAQAAAAAo/mtHAAAAIElEQVQIHWMRnWHwcRNLN8NZ7QYWwT8PlBlYsgqVBRsAankIMw5MtnoAAAAASUVORK5CYII=);}
+ p,select{font:1em/160% Verdana,sans-serif;color:#494949;}
+ body{margin:0;padding:0;background:#edf5fa;font:76%/170% Verdana,sans-serif;color:#494949;}.this .is .a .test{font:1em/100% Verdana,sans-serif;color:#494949;}.this
+ .is
+diff --git a/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css b/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
+index b8c7778..bc3c7b6 100644
+--- a/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
++++ b/modules/simpletest/files/css_test_files/css_input_with_import.css.unoptimized.css
+@@ -1,5 +1,7 @@
+ 
+ 
++@import url("http://example.com/style.css");
++@import url("//example.com/style.css");
+ 
+ ul, select {
+   font: 1em/160% Verdana, sans-serif;
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index 0f0347f..bf85576 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -942,6 +942,7 @@ class CascadingStylesheetsUnitTest extends DrupalUnitTestCase {
+    * - Proper URLs in imported files. (https://drupal.org/node/265719)
+    * - Retain pseudo-selectors. (https://drupal.org/node/460448)
+    * - Don't adjust data URIs. (https://drupal.org/node/2142441)
++   * - Files imported from external URLs. (https://drupal.org/node/2014851)
+    */
+   function testLoadCssBasic() {
+     // Array of files to test living in 'simpletest/files/css_test_files/'.
+@@ -2116,7 +2117,7 @@ class DrupalRenderTestCase extends DrupalWebTestCase {
+   }
+ 
+   /**
+-   * Tests caching of an empty render item.
++   * Tests caching of render items.
+    */
+   function testDrupalRenderCache() {
+     // Force a request via GET.
+@@ -2142,6 +2143,59 @@ class DrupalRenderTestCase extends DrupalWebTestCase {
+     drupal_render($element);
+     $this->assertFalse(isset($element['#printed']), 'Cache hit');
+ 
++    // Test that user 1 does not share the cache with other users who have the
++    // same roles, even when DRUPAL_CACHE_PER_ROLE is used.
++    $user1 = user_load(1);
++    $first_authenticated_user = $this->drupalCreateUser();
++    $second_authenticated_user = $this->drupalCreateUser();
++    $user1->roles = array_intersect_key($user1->roles, array(DRUPAL_AUTHENTICATED_RID => TRUE));
++    user_save($user1);
++    // Load all the accounts again, to make sure we have complete account
++    // objects.
++    $user1 = user_load(1);
++    $first_authenticated_user = user_load($first_authenticated_user->uid);
++    $second_authenticated_user = user_load($second_authenticated_user->uid);
++    $this->assertEqual($user1->roles, $first_authenticated_user->roles, 'User 1 has the same roles as an authenticated user.');
++    // Impersonate user 1 and render content that only user 1 should have
++    // permission to see.
++    $original_user = $GLOBALS['user'];
++    $original_session_state = drupal_save_session();
++    drupal_save_session(FALSE);
++    $GLOBALS['user'] = $user1;
++    $test_element = array(
++      '#cache' => array(
++        'keys' => array('test'),
++        'granularity' => DRUPAL_CACHE_PER_ROLE,
++      ),
++    );
++    $element = $test_element;
++    $element['#markup'] = 'content for user 1';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for user 1');
++    // Verify the cache is working by rendering the same element but with
++    // different markup passed in; the result should be the same.
++    $element = $test_element;
++    $element['#markup'] = 'should not be used';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for user 1');
++    // Verify that the first authenticated user does not see the same content
++    // as user 1.
++    $GLOBALS['user'] = $first_authenticated_user;
++    $element = $test_element;
++    $element['#markup'] = 'content for authenticated users';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for authenticated users');
++    // Verify that the second authenticated user shares the cache with the
++    // first authenticated user.
++    $GLOBALS['user'] = $second_authenticated_user;
++    $element = $test_element;
++    $element['#markup'] = 'should not be used';
++    $output = drupal_render($element);
++    $this->assertEqual($output, 'content for authenticated users');
++    // Restore the original logged-in user.
++    $GLOBALS['user'] = $original_user;
++    drupal_save_session($original_session_state);
++
+     // Restore the previous request method.
+     $_SERVER['REQUEST_METHOD'] = $request_method;
+   }
+diff --git a/modules/simpletest/tests/database_test.test b/modules/simpletest/tests/database_test.test
+index 9c533be..59d2e5d 100644
+--- a/modules/simpletest/tests/database_test.test
++++ b/modules/simpletest/tests/database_test.test
+@@ -1414,10 +1414,47 @@ class DatabaseSelectTestCase extends DatabaseTestCase {
+     }
+ 
+     $query = (string)$query;
+-    $expected = "/* Testing query comments SELECT nid FROM {node}; -- */ SELECT test.name AS name, test.age AS age\nFROM \n{test} test";
++    $expected = "/* Testing query comments  * / SELECT nid FROM {node}; -- */ SELECT test.name AS name, test.age AS age\nFROM \n{test} test";
+ 
+     $this->assertEqual($num_records, 4, 'Returned the correct number of rows.');
+     $this->assertEqual($query, $expected, 'The flattened query contains the sanitised comment string.');
++
++    $connection = Database::getConnection();
++    foreach ($this->makeCommentsProvider() as $test_set) {
++      list($expected, $comments) = $test_set;
++      $this->assertEqual($expected, $connection->makeComment($comments));
++    }
++  }
++
++  /**
++   * Provides expected and input values for testVulnerableComment().
++   */
++  function makeCommentsProvider() {
++    return array(
++      array(
++        '/*  */ ',
++        array(''),
++      ),
++      // Try and close the comment early.
++      array(
++        '/* Exploit  * / DROP TABLE node; -- */ ',
++        array('Exploit */ DROP TABLE node; --'),
++      ),
++      // Variations on comment closing.
++      array(
++        '/* Exploit  * / * / DROP TABLE node; -- */ ',
++        array('Exploit */*/ DROP TABLE node; --'),
++      ),
++      array(
++        '/* Exploit  *  * // DROP TABLE node; -- */ ',
++        array('Exploit **// DROP TABLE node; --'),
++      ),
++      // Try closing the comment in the second string which is appended.
++      array(
++        '/* Exploit  * / DROP TABLE node; --; Another try  * / DROP TABLE node; -- */ ',
++        array('Exploit */ DROP TABLE node; --', 'Another try */ DROP TABLE node; --'),
++      ),
++    );
+   }
+ 
+   /**
+diff --git a/modules/simpletest/tests/file.test b/modules/simpletest/tests/file.test
+index b75327f..89ecac7 100644
+--- a/modules/simpletest/tests/file.test
++++ b/modules/simpletest/tests/file.test
+@@ -480,13 +480,6 @@ class FileValidatorTest extends DrupalWebTestCase {
+    * Test file_validate_size().
+    */
+   function testFileValidateSize() {
+-    global $user;
+-    $original_user = $user;
+-    drupal_save_session(FALSE);
+-
+-    // Run these tests as a regular user.
+-    $user = $this->drupalCreateUser();
+-
+     // Create a file with a size of 1000 bytes, and quotas of only 1 byte.
+     $file = new stdClass();
+     $file->filesize = 1000;
+@@ -498,9 +491,6 @@ class FileValidatorTest extends DrupalWebTestCase {
+     $this->assertEqual(count($errors), 1, 'Error for the user being over their limit.', 'File');
+     $errors = file_validate_size($file, 1, 1);
+     $this->assertEqual(count($errors), 2, 'Errors for both the file and their limit.', 'File');
+-
+-    $user = $original_user;
+-    drupal_save_session(TRUE);
+   }
+ }
+ 
+diff --git a/modules/simpletest/tests/session.test b/modules/simpletest/tests/session.test
+index 097503b..893d03e 100644
+--- a/modules/simpletest/tests/session.test
++++ b/modules/simpletest/tests/session.test
+@@ -478,6 +478,56 @@ class SessionHttpsTestCase extends DrupalWebTestCase {
+   }
+ 
+   /**
++   * Tests that empty session IDs do not cause unrelated sessions to load.
++   */
++  public function testEmptySessionId() {
++    global $is_https;
++
++    if ($is_https) {
++      $secure_session_name = session_name();
++    }
++    else {
++      $secure_session_name = 'S' . session_name();
++    }
++
++    // Enable mixed mode for HTTP and HTTPS.
++    variable_set('https', TRUE);
++
++    $admin_user = $this->drupalCreateUser(array('access administration pages'));
++    $standard_user = $this->drupalCreateUser(array('access content'));
++
++    // First log in as the admin user on HTTP.
++    // We cannot use $this->drupalLogin() here because we need to use the
++    // special http.php URLs.
++    $edit = array(
++      'name' => $admin_user->name,
++      'pass' => $admin_user->pass_raw
++    );
++    $this->drupalGet('user');
++    $form = $this->xpath('//form[@id="user-login"]');
++    $form[0]['action'] = $this->httpUrl('user');
++    $this->drupalPost(NULL, $edit, t('Log in'));
++
++    $this->curlClose();
++
++    // Now start a session for the standard user on HTTPS.
++    $edit = array(
++      'name' => $standard_user->name,
++      'pass' => $standard_user->pass_raw
++    );
++    $this->drupalGet('user');
++    $form = $this->xpath('//form[@id="user-login"]');
++    $form[0]['action'] = $this->httpsUrl('user');
++    $this->drupalPost(NULL, $edit, t('Log in'));
++
++    // Make the secure session cookie blank.
++    curl_setopt($this->curlHandle, CURLOPT_COOKIE, "$secure_session_name=");
++    $this->drupalGet($this->httpsUrl('user'));
++    $this->assertNoText($admin_user->name, 'User is not logged in as admin');
++    $this->assertNoText($standard_user->name, "The user's own name is not displayed because the invalid session cookie has logged them out.");
++  }
++
++  /**
+    * Test that there exists a session with two specific session IDs.
+    *
+    * @param $sid
+diff --git a/modules/system/system.api.php b/modules/system/system.api.php
+index 0af6156..d6cbc76 100644
+--- a/modules/system/system.api.php
++++ b/modules/system/system.api.php
+@@ -606,7 +606,7 @@ function hook_cron() {
+  * @return
+  *   An associative array where the key is the queue name and the value is
+  *   again an associative array. Possible keys are:
+- *   - 'worker callback': A PHP callable to call that is an implementation of
++ *   - 'worker callback': The name of an implementation of
+  *     callback_queue_worker().
+  *   - 'time': (optional) How much time Drupal should spend on calling this
+  *     worker in seconds. Defaults to 15.
+@@ -644,28 +644,6 @@ function hook_cron_queue_info_alter(&$queues) {
+ }
+ 
+ /**
+- * Work on a single queue item.
+- *
+- * Callback for hook_queue_info().
+- *
+- * @param $queue_item_data
+- *   The data that was passed to DrupalQueue::createItem() when the item was
+- *   queued.
+- *
+- * @throws \Exception
+- *   The worker callback may throw an exception to indicate there was a problem.
+- *   The cron process will log the exception, and leave the item in the queue to
+- *   be processed again later.
+- *
+- * @see drupal_cron_run()
+- */
+-function callback_queue_worker($queue_item_data) {
+-  $node = node_load($queue_item_data);
+-  $node->title = 'Updated title';
+-  $node->save();
+-}
+-
+-/**
+  * Allows modules to declare their own Form API element types and specify their
+  * default values.
+  *
+@@ -3715,8 +3693,9 @@ function hook_registry_files_alter(&$files, $modules) {
+  *
+  * Any tasks you define here will be run, in order, after the installer has
+  * finished the site configuration step but before it has moved on to the
+- * final import of languages and the end of the installation. You can have any
+- * number of custom tasks to perform during this phase.
++ * final import of languages and the end of the installation. This is invoked
++ * by install_tasks().  You can have any number of custom tasks to perform
++ * during this phase.
+  *
+  * Each task you define here corresponds to a callback function which you must
+  * separately define and which is called when your task is run. This function
+@@ -3809,6 +3788,8 @@ function hook_registry_files_alter(&$files, $modules) {
+  *
+  * @see install_state_defaults()
+  * @see batch_set()
++ * @see hook_install_tasks_alter()
++ * @see install_tasks()
+  */
+ function hook_install_tasks(&$install_state) {
+   // Here, we define a variable to allow tasks to indicate that a particular,
+@@ -3911,6 +3892,8 @@ function hook_html_head_alter(&$head_elements) {
+ /**
+  * Alter the full list of installation tasks.
+  *
++ * This hook is invoked on the install profile in install_tasks().
++ *
+  * @param $tasks
+  *   An array of all available installation tasks, including those provided by
+  *   Drupal core. You can modify this array to change or replace any part of
+@@ -3918,6 +3901,9 @@ function hook_html_head_alter(&$head_elements) {
+  *   is selected.
+  * @param $install_state
+  *   An array of information about the current installation state.
++ *
++ * @see hook_install_tasks()
++ * @see install_tasks()
+  */
+ function hook_install_tasks_alter(&$tasks, $install_state) {
+   // Replace the "Choose language" installation task provided by Drupal core
+@@ -4805,6 +4791,28 @@ function hook_filetransfer_info_alter(&$filetransfer_info) {
+  */
+ 
+ /**
++ * Work on a single queue item.
++ *
++ * Callback for hook_cron_queue_info().
++ *
++ * @param $queue_item_data
++ *   The data that was passed to DrupalQueueInterface::createItem() when the
++ *   item was queued.
++ *
++ * @throws Exception
++ *   The worker callback may throw an exception to indicate there was a problem.
++ *   The cron process will log the exception, and leave the item in the queue to
++ *   be processed again later.
++ *
++ * @see drupal_cron_run()
++ */
++function callback_queue_worker($queue_item_data) {
++  $node = node_load($queue_item_data);
++  $node->title = 'Updated title';
++  node_save($node);
++}
++
++/**
+  * Return the URI for an entity.
+  *
+  * Callback for hook_entity_info().
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 6a6200e..c2aa9e0 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -359,7 +359,7 @@ function system_element_info() {
+     '#size' => 60,
+     '#maxlength' => 128,
+     '#autocomplete_path' => FALSE,
+-    '#process' => array('ajax_process_form'),
++    '#process' => array('form_process_autocomplete', 'ajax_process_form'),
+     '#theme' => 'textfield',
+     '#theme_wrappers' => array('form_element'),
+   );
+@@ -2030,7 +2030,6 @@ function system_user_timezone(&$form, &$form_state) {
+     '#description' => t('Select the desired local time and time zone. Dates and times throughout this site will be displayed using this time zone.'),
+   );
+   if (!isset($account->timezone) && $account->uid == $user->uid && empty($form_state['input']['timezone'])) {
+-    $form['timezone']['#description'] = t('Your time zone setting will be automatically detected if possible. Confirm the selection and click save.');
+     $form['timezone']['timezone']['#attributes'] = array('class' => array('timezone-detect'));
+     drupal_add_js('misc/timezone.js');
+   }
+diff --git a/modules/system/system.queue.inc b/modules/system/system.queue.inc
+index 901c4d6..6eeaae1 100644
+--- a/modules/system/system.queue.inc
++++ b/modules/system/system.queue.inc
+@@ -231,7 +231,7 @@ class SystemQueue implements DrupalReliableQueueInterface {
+     // until an item is successfully claimed or we are reasonably sure there
+     // are no unclaimed items left.
+     while (TRUE) {
+-      $item = db_query_range('SELECT data, item_id FROM {queue} q WHERE expire = 0 AND name = :name ORDER BY created ASC', 0, 1, array(':name' => $this->name))->fetchObject();
++      $item = db_query_range('SELECT data, item_id FROM {queue} q WHERE expire = 0 AND name = :name ORDER BY created, item_id ASC', 0, 1, array(':name' => $this->name))->fetchObject();
+       if ($item) {
+         // Try to update the item. Only one thread can succeed in UPDATEing the
+         // same row. We cannot rely on REQUEST_TIME because items might be
+diff --git a/modules/system/system.test b/modules/system/system.test
+index 3e26bae..d4c98f0 100644
+--- a/modules/system/system.test
++++ b/modules/system/system.test
+@@ -1068,6 +1068,11 @@ class PageNotFoundTestCase extends DrupalWebTestCase {
+     );
+     $node = $this->drupalCreateNode($edit);
+ 
++    // As node IDs must be integers, make sure requests for non-integer IDs
++    // return a page not found error.
++    $this->drupalGet('node/invalid');
++    $this->assertResponse(404);
++
+     // Use a custom 404 page.
+     $this->drupalPost('admin/config/system/site-information', array('site_404' => 'node/' . $node->nid), t('Save configuration'));
+ 
+diff --git a/modules/translation/translation.module b/modules/translation/translation.module
+index 53c4641..580d000 100644
+--- a/modules/translation/translation.module
++++ b/modules/translation/translation.module
+@@ -428,7 +428,7 @@ function translation_node_delete($node) {
+  *   A node object.
+  */
+ function translation_remove_from_set($node) {
+-  if (isset($node->tnid)) {
++  if (isset($node->tnid) && $node->tnid) {
+     $query = db_update('node')
+       ->fields(array(
+         'tnid' => 0,
+diff --git a/modules/update/update.module b/modules/update/update.module
+index d1f0d85..a59c7d7 100644
+--- a/modules/update/update.module
++++ b/modules/update/update.module
+@@ -278,12 +278,15 @@ function update_theme() {
+     ),
+     'update_report' => array(
+       'variables' => array('data' => NULL),
++      'file' => 'update.report.inc',
+     ),
+     'update_version' => array(
+       'variables' => array('version' => NULL, 'tag' => NULL, 'class' => array()),
++      'file' => 'update.report.inc',
+     ),
+     'update_status_label' => array(
+       'variables' => array('status' => NULL),
++      'file' => 'update.report.inc',
+     ),
+   );
+ }
+diff --git a/sites/all/libraries/README.txt b/sites/all/libraries/README.txt
+new file mode 100644
+index 0000000..d027ec2
+--- /dev/null
++++ b/sites/all/libraries/README.txt
+@@ -0,0 +1,2 @@
++This directory should be used to place downloaded and custom libraries (such as
++Javascript libraries) which are used by contributed or custom modules.
