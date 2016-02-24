@@ -1,0 +1,860 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 3884bbe..f0c0aab 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,9 @@
+ 
++Drupal 6.38, 2016-02-24 - Final release
++---------------------------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2016-001.
++- Previously unreleased documentation fixes.
++
+ Drupal 6.37, 2015-08-19
+ -----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-003.
+@@ -8,52 +13,52 @@ Drupal 6.36, 2015-06-17
+ - Fixed security issues (OpenID impersonation). See SA-CORE-2015-002.
+ 
+ Drupal 6.35, 2015-03-18
+-----------------------
++-----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2015-001.
+ 
+ Drupal 6.34, 2014-11-19
+-----------------------
++-----------------------
+ - Fixed security issues (session hijacking). See SA-CORE-2014-006.
+ 
+ Drupal 6.33, 2014-08-06
+-----------------------
++-----------------------
+ - Fixed security issues (denial of service). See SA-CORE-2014-004.
+ 
+ Drupal 6.32, 2014-07-16
+-----------------------
++-----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-003.
+ 
+ Drupal 6.31, 2014-04-16
+-----------------------
++-----------------------
+ - Fixed security issues (information disclosure). See SA-CORE-2014-002.
+ 
+ Drupal 6.30, 2014-01-15
+-----------------------
+-- Fixed security issues (multiple vulnerabilities), see SA-CORE-2014-001.
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2014-001.
+ 
+ Drupal 6.29, 2013-11-20
+-----------------------
+-- Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-003.
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2013-003.
+ 
+ Drupal 6.28, 2013-01-16
+-----------------------
+-- Fixed security issues (multiple vulnerabilities), see SA-CORE-2013-001.
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2013-001.
+ 
+ Drupal 6.27, 2012-12-19
+-----------------------
+-- Fixed security issues (multiple vulnerabilities), see SA-CORE-2012-004.
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2012-004.
+ 
+ Drupal 6.26, 2012-05-02
+-----------------------
++-----------------------
+ - Fixed a small number of bugs.
+ - Made code documentation improvements.
+ 
+ Drupal 6.25, 2012-02-29
+-----------------------
++-----------------------
+ - Fixed regressions introduced in Drupal 6.24 only.
+ 
+ Drupal 6.24, 2012-02-01
+-----------------------
++-----------------------
+ - Improved performance of search indexing and user operations by adding indexes.
+ - Fixed issues with themes getting disabled due to missing locking in
+   system_theme_data().
+@@ -63,36 +68,36 @@ Drupal 6.24, 2012-02-01
+ - Fixed a variety of other bugs.
+ 
+ Drupal 6.23, 2012-02-01
+-----------------------
+-- Fixed security issues (Cross site scripting), see SA-CORE-2012-001.
++-----------------------
++- Fixed security issues (Cross site scripting). See SA-CORE-2012-001.
+ 
+ Drupal 6.22, 2011-05-25
+-----------------------
++-----------------------
+ - Made Drupal 6 work better with IIS and Internet Explorer.
+ - Fixed .po file imports to work better with custom textgroups.
+ - Improved code documentation at various places.
+ - Fixed a variety of other bugs.
+ 
+ Drupal 6.21, 2011-05-25
+-----------------------
+-- Fixed security issues (Cross site scripting), see SA-CORE-2011-001.
++-----------------------
++- Fixed security issues (Cross site scripting). See SA-CORE-2011-001.
+ 
+ Drupal 6.20, 2010-12-15
+-----------------------
++-----------------------
+ - Fixed a variety of small bugs, improved code documentation.
+ 
+ Drupal 6.19, 2010-08-11
+-----------------------
++-----------------------
+ - Fixed a variety of small bugs, improved code documentation.
+ 
+ Drupal 6.18, 2010-08-11
+-----------------------
++-----------------------
+ - Fixed security issues (OpenID authentication bypass, File download access
+   bypass, Comment unpublishing bypass, Actions cross site scripting),
+   see SA-CORE-2010-002.
+ 
+ Drupal 6.17, 2010-06-02
+-----------------------
++-----------------------
+ - Improved PostgreSQL compatibility
+ - Better PHP 5.3 and PHP 4 compatibility
+ - Better browser compatibility of CSS and JS aggregation
+@@ -101,7 +106,7 @@ Drupal 6.17, 2010-06-02
+ - Fixed a variety of other bugs.
+ 
+ Drupal 6.16, 2010-03-03
+-----------------------
++-----------------------
+ - Fixed security issues (Installation cross site scripting, Open redirection,
+   Locale module cross site scripting, Blocked user session regeneration),
+   see SA-CORE-2010-001.
+@@ -113,42 +118,42 @@ Drupal 6.16, 2010-03-03
+ - Fixed a variety of other bugs.
+ 
+ Drupal 6.15, 2009-12-16
+-----------------------
+-- Fixed security issues (Cross site scripting), see SA-CORE-2009-009.
++-----------------------
++- Fixed security issues (Cross site scripting). See SA-CORE-2009-009.
+ - Fixed a variety of other bugs.
+ 
+ Drupal 6.14, 2009-09-16
+-----------------------
++-----------------------
+ - Fixed security issues (OpenID association cross site request forgeries,
+-  OpenID impersonation and File upload), see SA-CORE-2009-008.
++  OpenID impersonation and File upload). See SA-CORE-2009-008.
+ - Changed the system modules page to not run all cache rebuilds; use the
+   button on the performance settings page to achieve the same effect.
+ - Added support for PHP 5.3.0 out of the box.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.13, 2009-07-01
+-----------------------
++-----------------------
+ - Fixed security issues (Cross site scripting, Input format access bypass and
+-  Password leakage in URL), see SA-CORE-2009-007.
++  Password leakage in URL). See SA-CORE-2009-007.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.12, 2009-05-13
+-----------------------
+-- Fixed security issues (Cross site scripting), see SA-CORE-2009-006.
++-----------------------
++- Fixed security issues (Cross site scripting). See SA-CORE-2009-006.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.11, 2009-04-29
+-----------------------
++-----------------------
+ - Fixed security issues (Cross site scripting and limited information
+-  disclosure), see SA-CORE-2009-005
++  disclosure). See SA-CORE-2009-005.
+ - Fixed performance issues with the menu router cache, the update
+   status cache and improved cache invalidation
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.10, 2009-02-25
+-----------------------
++-----------------------
+ - Fixed a security issue, (Local file inclusion on Windows),
+-  see SA-CORE-2009-003
++  see SA-CORE-2009-003.
+ - Fixed node_feed() so custom fields can show up in RSS feeds.
+ - Improved PostgreSQL compatibility.
+ - Fixed a variety of small bugs.
+@@ -156,7 +161,7 @@ Drupal 6.10, 2009-02-25
+ Drupal 6.9, 2009-01-14
+ ----------------------
+ - Fixed security issues, (Access Bypass, Validation Bypass and Hardening
+-  against SQL injection), see SA-CORE-2009-001
++  against SQL injection). See SA-CORE-2009-001.
+ - Made HTTP request checking more robust and informative.
+ - Fixed HTTP_HOST checking to work again with HTTP 1.0 clients and
+   basic shell scripts.
+@@ -169,14 +174,16 @@ Drupal 6.8, 2008-12-11
+ - Removed a previous change incompatible with PHP 5.1.x and lower.
+ 
+ Drupal 6.7, 2008-12-10
+-----------------------
+-- Fixed security issues, (Cross site request forgery and Cross site scripting), see SA-2008-073
++-----------------------
++- Fixed security issues, (Cross site request forgery and Cross site
++  scripting), see SA-2008-073.
+ - Updated robots.txt and .htaccess to match current file use.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.6, 2008-10-22
+ ----------------------
+-- Fixed security issues, (File inclusion, Cross site scripting), see SA-2008-067
++- Fixed security issues, (File inclusion, Cross site scripting), See
++  SA-2008-067.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 6.5, 2008-10-08
+@@ -321,32 +328,33 @@ Drupal 6.0, 2008-02-13
+ Drupal 5.23, 2010-08-11
+ -----------------------
+ - Fixed security issues (File download access bypass, Comment unpublishing
+-  bypass), see SA-CORE-2010-002.
++  bypass). See SA-CORE-2010-002.
+ 
+ Drupal 5.22, 2010-03-03
+ -----------------------
+ - Fixed security issues (Open redirection, Locale module cross site scripting,
+-  Blocked user session regeneration), see SA-CORE-2010-001.
++  Blocked user session regeneration). See SA-CORE-2010-001.
+ 
+ Drupal 5.21, 2009-12-16
+ -----------------------
+-- Fixed a security issue (Cross site scripting), see SA-CORE-2009-009.
++- Fixed a security issue (Cross site scripting). See SA-CORE-2009-009.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 5.20, 2009-09-16
+ -----------------------
+ - Avoid security problems resulting from writing Drupal 6-style menu declarations.
+-- Fixed security issues (session fixation), see SA-CORE-2009-008.
++- Fixed security issues (session fixation). See SA-CORE-2009-008.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 5.19, 2009-07-01
+ -----------------------
+-- Fixed security issues (Cross site scripting and Password leakage in URL), see SA-CORE-2009-007.
++- Fixed security issues (Cross site scripting and Password leakage in URL).
++  See SA-CORE-2009-007.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 5.18, 2009-05-13
+ ----------------------
+-- Fixed security issues (Cross site scripting), see SA-CORE-2009-006.
++- Fixed security issues (Cross site scripting). See SA-CORE-2009-006.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 5.17, 2009-04-29
+@@ -356,12 +364,14 @@ Drupal 5.17, 2009-04-29
+ 
+ Drupal 5.16, 2009-02-25
+ -----------------------
+-- Fixed a security issue, (Local file inclusion on Windows), see SA-CORE-2009-004.
++- Fixed a security issue, (Local file inclusion on Windows). See
++  SA-CORE-2009-004.
+ - Fixed a variety of small bugs.
+ 
+ Drupal 5.15, 2009-01-14
+ ----------------------
+-- Fixed security issues, (Hardening against SQL injection), see SA-CORE-2009-001
++- Fixed security issues, (Hardening against SQL injection). See
++  SA-CORE-2009-001.
+ - Fixed HTTP_HOST checking to work again with HTTP 1.0 clients and
+   basic shell scripts.
+ - Fixed a variety of small bugs.
+@@ -378,7 +388,7 @@ Drupal 5.13, 2008-12-10
+ 
+ Drupal 5.12, 2008-10-22
+ -----------------------
+-- fixed security issues, (File inclusion), see SA-2008-067
++- fixed security issues, (File inclusion), see SA-2008-067.
+ 
+ Drupal 5.11, 2008-10-08
+ -----------------------
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 3b2cf1b..23179ca 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -938,6 +938,8 @@ function request_uri() {
+  * @param $type
+  *   The category to which this message belongs. Can be any string, but the
+  *   general practice is to use the name of the module calling watchdog().
++ *   The $type parameter is limited to 16 characters; anything longer is
++ *   truncated.
+  * @param $message
+  *   The message to store in the log. See t() for documentation
+  *   on how $message and $variables interact. Keep $message
+@@ -947,8 +949,16 @@ function request_uri() {
+  *   NULL if message is already translated or not possible to
+  *   translate.
+  * @param $severity
+- *   The severity of the message, as per RFC 3164. Possible values are
+- *   WATCHDOG_ERROR, WATCHDOG_WARNING, etc.
++ *   The severity of the message; one of the following values as defined in
++ *   @link http://www.faqs.org/rfcs/rfc3164.html RFC 3164: @endlink
++ *   - WATCHDOG_EMERGENCY: Emergency, system is unusable.
++ *   - WATCHDOG_ALERT: Alert, action must be taken immediately.
++ *   - WATCHDOG_CRITICAL: Critical conditions.
++ *   - WATCHDOG_ERROR: Error conditions.
++ *   - WATCHDOG_WARNING: Warning conditions.
++ *   - WATCHDOG_NOTICE: (default) Normal but significant conditions.
++ *   - WATCHDOG_INFO: Informational messages.
++ *   - WATCHDOG_DEBUG: Debug-level messages.
+  * @param $link
+  *   A link to associate with the message.
+  *
+@@ -1186,8 +1196,6 @@ function _drupal_bootstrap($phase) {
+       // because menu_path_is_external() requires the variable system to be
+       // available.
+       if (isset($_GET['destination']) || isset($_REQUEST['destination']) || isset($_REQUEST['edit']['destination'])) {
+-        require_once './includes/menu.inc';
+-        drupal_load('module', 'filter');
+         // If the destination is an external URL, remove it.
+         if (isset($_GET['destination']) && menu_path_is_external($_GET['destination'])) {
+           unset($_GET['destination']);
+@@ -1524,3 +1532,74 @@ function drupal_hmac_base64($data, $key) {
+   // Modify the hmac so it's safe to use in URLs.
+   return strtr($hmac, array('+' => '-', '/' => '_', '=' => ''));
+ }
++
++/**
++ * Returns TRUE if a path is external (e.g. http://example.com).
++ *
++ * May be used early in bootstrap.
++ */
++function menu_path_is_external($path) {
++  // Avoid calling filter_xss_bad_protocol() if there is any slash (/),
++  // hash (#) or question_mark (?) before the colon (:) occurrence - if any - as
++  // this would clearly mean it is not a URL. If the path starts with 2 slashes
++  // then it is always considered an external URL without an explicit protocol
++  // part. Leading control characters may be ignored or mishandled by browsers,
++  // so assume such a path may lead to an external location. The range matches
++  // all UTF-8 control characters, class Cc.
++  $colonpos = strpos($path, ':');
++  // Some browsers treat \ as / so normalize to forward slashes.
++  $path = str_replace('\\', '/', $path);
++  return (strpos($path, '//') === 0) || (preg_match('/^[\x00-\x1F\x7F-\x9F]/u', $path) !== 0)
++  || ($colonpos !== FALSE
++    && !preg_match('![/?#]!', substr($path, 0, $colonpos))
++    && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
++}
++
++/**
++ * Processes an HTML attribute value and ensures it does not contain an URL
++ * with a disallowed protocol (e.g. javascript:)
++ *
++ * May be used early in bootstrap.
++ *
++ * @param $string
++ *   The string with the attribute value.
++ * @param $decode
++ *   Whether to decode entities in the $string. Set to FALSE if the $string
++ *   is in plain text, TRUE otherwise. Defaults to TRUE.
++ * @return
++ *   Cleaned up and HTML-escaped version of $string.
++ */
++function filter_xss_bad_protocol($string, $decode = TRUE) {
++  static $allowed_protocols;
++  if (!isset($allowed_protocols)) {
++    $allowed_protocols = array_flip(variable_get('filter_allowed_protocols', array('http', 'https', 'ftp', 'news', 'nntp', 'tel', 'telnet', 'mailto', 'irc', 'ssh', 'sftp', 'webcal', 'rtsp')));
++  }
++
++  // Get the plain text representation of the attribute value (i.e. its meaning).
++  if ($decode) {
++    $string = decode_entities($string);
++  }
++
++  // Iteratively remove any invalid protocol found.
++
++  do {
++    $before = $string;
++    $colonpos = strpos($string, ':');
++    if ($colonpos > 0) {
++      // We found a colon, possibly a protocol. Verify.
++      $protocol = substr($string, 0, $colonpos);
++      // If a colon is preceded by a slash, question mark or hash, it cannot
++      // possibly be part of the URL scheme. This must be a relative URL,
++      // which inherits the (safe) protocol of the base document.
++      if (preg_match('![/?#]!', $protocol)) {
++        break;
++      }
++      // Per RFC2616, section 3.2.3 (URI Comparison) scheme comparison must be case-insensitive
++      // Check if this is a disallowed protocol.
++      if (!isset($allowed_protocols[strtolower($protocol)])) {
++        $string = substr($string, $colonpos + 1);
++      }
++    }
++  } while ($before != $string);
++  return check_plain($string);
++}
+diff --git a/includes/common.inc b/includes/common.inc
+index 894fe5a..9a28c06 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -142,6 +142,10 @@ function drupal_clear_path_cache() {
+  *
+  * Note: When sending a Content-Type header, always include a 'charset' type,
+  * too. This is necessary to avoid security bugs (e.g. UTF-7 XSS).
++ *
++ * Note: No special sanitizing needs to be done to headers. However if a header
++ * value contains a line break a PHP warning will be thrown and the header
++ * will not be set.
+  */
+ function drupal_set_header($header = NULL) {
+   // We use an array to guarantee there are no leading or trailing delimiters.
+@@ -150,8 +154,15 @@ function drupal_set_header($header = NULL) {
+   static $stored_headers = array();
+ 
+   if (strlen($header)) {
+-    header($header);
+-    $stored_headers[] = $header;
++    // Protect against header injection attacks if PHP is too old to do that.
++    if (version_compare(PHP_VERSION, '5.1.2', '<') && (strpos($header, "\n") !== FALSE || strpos($header, "\r") !== FALSE)) {
++      // Use the same warning message that newer versions of PHP use.
++      trigger_error('Header may not contain more than a single header, new line detected', E_USER_WARNING);
++    }
++    else {
++      header($header);
++      $stored_headers[] = $header;
++    }
+   }
+   return implode("\n", $stored_headers);
+ }
+@@ -304,17 +315,18 @@ function drupal_get_destination() {
+  * @param $fragment
+  *   (optional) A destination fragment identifier (named anchor).
+  * @param $http_response_code
+- *   (optional) The HTTP status code to use for the redirection, defaults to
+- *   302. Valid values for an actual "goto" as per RFC 2616 section 10.3 are:
+- *   - 301 Moved Permanently (the recommended value for most redirects)
+- *   - 302 Found (default in Drupal and PHP, sometimes used for spamming search
+- *         engines)
+- *   - 303 See Other
+- *   - 304 Not Modified
+- *   - 305 Use Proxy
+- *   - 307 Temporary Redirect (alternative to "503 Site Down for Maintenance")
+- *   Note: Other values are defined by RFC 2616, but are rarely used and poorly
+- *   supported.
++ *   (optional) The HTTP status code to use for the redirection, defaults to 302.
++ *   The valid values for 3xx redirection status codes are defined in
++ *   @link http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.3 RFC 2616 @endlink
++ *   and the
++ *   @link http://tools.ietf.org/html/draft-reschke-http-status-308-07 draft for the new HTTP status codes: @endlink
++ *   - 301: Moved Permanently (the recommended value for most redirects).
++ *   - 302: Found (default in Drupal and PHP, sometimes used for spamming search
++ *     engines).
++ *   - 303: See Other.
++ *   - 304: Not Modified.
++ *   - 305: Use Proxy.
++ *   - 307: Temporary Redirect.
+  * @see drupal_get_destination()
+  */
+ function drupal_goto($path = '', $query = NULL, $fragment = NULL, $http_response_code = 302) {
+@@ -329,14 +341,20 @@ function drupal_goto($path = '', $query = NULL, $fragment = NULL, $http_response
+ 
+   if ($destination) {
+     // Do not redirect to an absolute URL originating from user input.
+-    $colonpos = strpos($destination, ':');
+-    $absolute = strpos($destination, '//') === 0 || ($colonpos !== FALSE && !preg_match('![/?#]!', substr($destination, 0, $colonpos)));
+-    if (!$absolute) {
+-      extract(parse_url(urldecode($destination)));
++    if (!menu_path_is_external($destination)) {
++      extract(parse_url($destination));
+     }
+   }
+ 
+-  $url = url($path, array('query' => $query, 'fragment' => $fragment, 'absolute' => TRUE));
++  $options = array('query' => $query, 'fragment' => $fragment, 'absolute' => TRUE);
++  // In some cases modules call drupal_goto($_GET['q']). We need to ensure that
++  // such a redirect is not to an external URL.
++  if ($path === $_GET['q'] && menu_path_is_external($path)) {
++    // Force url() to generate a non-external URL.
++    $options['external'] = FALSE;
++  }
++
++  $url = url($path, $options);
+   // Remove newlines from the URL to avoid header injection attacks.
+   $url = str_replace(array("\n", "\r"), '', $url);
+ 
+@@ -1479,20 +1497,9 @@ function url($path = NULL, $options = array()) {
+     'alias' => FALSE,
+     'prefix' => ''
+   );
+-  // A duplicate of the code from menu_path_is_external() to avoid needing
+-  // another function call, since performance inside url() is critical.
++
+   if (!isset($options['external'])) {
+-    // Return an external link if $path contains an allowed absolute URL. Avoid
+-    // calling filter_xss_bad_protocol() if there is any slash (/), hash (#) or
+-    // question_mark (?) before the colon (:) occurrence - if any - as this
+-    // would clearly mean it is not a URL. If the path starts with 2 slashes
+-    // then it is always considered an external URL without an explicit protocol
+-    // part.
+-    $colonpos = strpos($path, ':');
+-    $options['external'] = (strpos($path, '//') === 0)
+-      || ($colonpos !== FALSE
+-        && !preg_match('![/?#]!', substr($path, 0, $colonpos))
+-        && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
++    $options['external'] = menu_path_is_external($path);
+   }
+ 
+   // May need language dependent rewriting if language.inc is present.
+diff --git a/includes/database.mysql-common.inc b/includes/database.mysql-common.inc
+index ead7f36..e53cee1 100644
+--- a/includes/database.mysql-common.inc
++++ b/includes/database.mysql-common.inc
+@@ -286,7 +286,7 @@ function db_drop_table(&$ret, $table) {
+  *   This is most useful for creating NOT NULL columns with no default
+  *   value in existing tables.
+  * @param $keys_new
+- *   Optional keys and indexes specification to be created on the
++ *   (optional) Keys and indexes specification to be created on the
+  *   table along with adding the field. The format is the same as a
+  *   table specification but without the 'fields' element.  If you are
+  *   adding a type 'serial' field, you MUST specify at least one key
+@@ -515,7 +515,7 @@ function db_drop_index(&$ret, $table, $name) {
+  * @param $spec
+  *   The field specification for the new field.
+  * @param $keys_new
+- *   Optional keys and indexes specification to be created on the
++ *   (optional) Keys and indexes specification to be created on the
+  *   table along with changing the field. The format is the same as a
+  *   table specification but without the 'fields' element.
+  */
+diff --git a/includes/database.pgsql.inc b/includes/database.pgsql.inc
+index 01f2c6b..da7c4f9 100644
+--- a/includes/database.pgsql.inc
++++ b/includes/database.pgsql.inc
+@@ -657,7 +657,7 @@ function db_drop_table(&$ret, $table) {
+  *   This is most useful for creating NOT NULL columns with no default
+  *   value in existing tables.
+  * @param $new_keys
+- *   Optional keys and indexes specification to be created on the
++ *   (optional) Keys and indexes specification to be created on the
+  *   table along with adding the field. The format is the same as a
+  *   table specification but without the 'fields' element.  If you are
+  *   adding a type 'serial' field, you MUST specify at least one key
+@@ -887,7 +887,7 @@ function db_drop_index(&$ret, $table, $name) {
+  * @param $spec
+  *   The field specification for the new field.
+  * @param $new_keys
+- *   Optional keys and indexes specification to be created on the
++ *   (optional) Keys and indexes specification to be created on the
+  *   table along with changing the field. The format is the same as a
+  *   table specification but without the 'fields' element.
+  */
+diff --git a/includes/file.inc b/includes/file.inc
+index e606ba2..b0f90e8 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -595,7 +595,7 @@ function file_save_upload($source, $validators = array(), $dest = FALSE, $replac
+   global $user;
+   static $upload_cache;
+ 
+-  // Add in our check of the the file name length.
++  // Add our check of the file name length.
+   $validators['file_validate_name_length'] = array();
+ 
+   // Return cached objects without processing since the file will have
+diff --git a/includes/form.inc b/includes/form.inc
+index b55d724..1f485ef 100644
+--- a/includes/form.inc
++++ b/includes/form.inc
+@@ -1066,9 +1066,16 @@ function _form_builder_handle_input_element($form_id, &$form, &$form_state, $com
+     $form['#attributes']['disabled'] = 'disabled';
+   }
+ 
++  // With JavaScript or other easy hacking, input can be submitted even for
++  // elements with #access=FALSE. For security, these must not be processed.
++  // For pages with multiple forms, ensure that input is only processed for the
++  // submitted form. drupal_execute() may bypass these checks and be treated as
++  // a high privilege user submitting a single form.
++  $process_input = $form['#programmed'] || ((!isset($form['#access']) || $form['#access']) && isset($form['#post']) && (isset($form['#post']['form_id']) && $form['#post']['form_id'] == $form_id));
++
+   if (!isset($form['#value']) && !array_key_exists('#value', $form)) {
+     $function = !empty($form['#value_callback']) ? $form['#value_callback'] : 'form_type_'. $form['#type'] .'_value';
+-    if (($form['#programmed']) || ((!isset($form['#access']) || $form['#access']) && isset($form['#post']) && (isset($form['#post']['form_id']) && $form['#post']['form_id'] == $form_id))) {
++    if ($process_input) {
+       $edit = $form['#post'];
+       foreach ($form['#parents'] as $parent) {
+         $edit = isset($edit[$parent]) ? $edit[$parent] : NULL;
+@@ -1113,7 +1120,7 @@ function _form_builder_handle_input_element($form_id, &$form, &$form_state, $com
+   // We compare the incoming values with the buttons defined in the form,
+   // and flag the one that matches. We have to do some funky tricks to
+   // deal with Internet Explorer's handling of single-button forms, though.
+-  if (!empty($form['#post']) && isset($form['#executes_submit_callback'])) {
++  if ($process_input && !empty($form['#post']) && isset($form['#executes_submit_callback'])) {
+     // First, accumulate a collection of buttons, divided into two bins:
+     // those that execute full submit callbacks and those that only validate.
+     $button_type = $form['#executes_submit_callback'] ? 'submit' : 'button';
+diff --git a/includes/menu.inc b/includes/menu.inc
+index ef27d91..4788855 100644
+--- a/includes/menu.inc
++++ b/includes/menu.inc
+@@ -2470,22 +2470,6 @@ function _menu_router_build($callbacks) {
+ }
+ 
+ /**
+- * Returns TRUE if a path is external (e.g. http://example.com).
+- */
+-function menu_path_is_external($path) {
+-  // Avoid calling filter_xss_bad_protocol() if there is any slash (/),
+-  // hash (#) or question_mark (?) before the colon (:) occurrence - if any - as
+-  // this would clearly mean it is not a URL. If the path starts with 2 slashes
+-  // then it is always considered an external URL without an explicit protocol
+-  // part.
+-  $colonpos = strpos($path, ':');
+-  return (strpos($path, '//') === 0)
+-    || ($colonpos !== FALSE
+-      && !preg_match('![/?#]!', substr($path, 0, $colonpos))
+-      && filter_xss_bad_protocol($path, FALSE) == check_plain($path));
+-}
+-
+-/**
+  * Checks whether the site is off-line for maintenance.
+  *
+  * This function will log the current user out and redirect to front page
+diff --git a/includes/xmlrpcs.inc b/includes/xmlrpcs.inc
+index 049a92b..18e5ac7 100644
+--- a/includes/xmlrpcs.inc
++++ b/includes/xmlrpcs.inc
+@@ -213,6 +213,10 @@ function xmlrpc_server_call($xmlrpc_server, $methodname, $args) {
+ 
+ function xmlrpc_server_multicall($methodcalls) {
+   // See http://www.xmlrpc.com/discuss/msgReader$1208
++  // To avoid multicall expansion attacks, limit the number of duplicate method
++  // calls allowed with a default of 1. Set to -1 for unlimited.
++  $duplicate_method_limit = variable_get('xmlrpc_multicall_duplicate_method_limit', 1);
++  $method_count = array();
+   $return = array();
+   $xmlrpc_server = xmlrpc_server_get();
+   foreach ($methodcalls as $call) {
+@@ -222,10 +226,14 @@ function xmlrpc_server_multicall($methodcalls) {
+       $ok = FALSE;
+     }
+     $method = $call['methodName'];
++    $method_count[$method] = isset($method_count[$method]) ? $method_count[$method] + 1 : 1;
+     $params = $call['params'];
+     if ($method == 'system.multicall') {
+       $result = xmlrpc_error(-32600, t('Recursive calls to system.multicall are forbidden.'));
+     }
++    elseif ($duplicate_method_limit > 0 && $method_count[$method] > $duplicate_method_limit) {
++      $result = xmlrpc_error(-156579, t('Too many duplicate method calls in system.multicall.'));
++    }
+     elseif ($ok) {
+       $result = xmlrpc_server_call($xmlrpc_server, $method, $params);
+     }
+diff --git a/misc/tableselect.js b/misc/tableselect.js
+index d085a9b..62cae44 100644
+--- a/misc/tableselect.js
++++ b/misc/tableselect.js
+@@ -56,7 +56,7 @@ Drupal.tableSelect = function() {
+ };
+ 
+ Drupal.tableSelectRange = function(from, to, state) {
+-  // We determine the looping mode based on the the order of from and to.
++  // We determine the looping mode based on the order of from and to.
+   var mode = from.rowIndex > to.rowIndex ? 'previousSibling' : 'nextSibling';
+ 
+   // Traverse through the sibling nodes.
+diff --git a/modules/filter/filter.module b/modules/filter/filter.module
+index 6ea0537..e603b25 100644
+--- a/modules/filter/filter.module
++++ b/modules/filter/filter.module
+@@ -1204,52 +1204,5 @@ function _filter_xss_attributes($attr) {
+ }
+ 
+ /**
+- * Processes an HTML attribute value and ensures it does not contain an URL
+- * with a disallowed protocol (e.g. javascript:)
+- *
+- * @param $string
+- *   The string with the attribute value.
+- * @param $decode
+- *   Whether to decode entities in the $string. Set to FALSE if the $string
+- *   is in plain text, TRUE otherwise. Defaults to TRUE.
+- * @return
+- *   Cleaned up and HTML-escaped version of $string.
+- */
+-function filter_xss_bad_protocol($string, $decode = TRUE) {
+-  static $allowed_protocols;
+-  if (!isset($allowed_protocols)) {
+-    $allowed_protocols = array_flip(variable_get('filter_allowed_protocols', array('http', 'https', 'ftp', 'news', 'nntp', 'tel', 'telnet', 'mailto', 'irc', 'ssh', 'sftp', 'webcal', 'rtsp')));
+-  }
+-
+-  // Get the plain text representation of the attribute value (i.e. its meaning).
+-  if ($decode) {
+-    $string = decode_entities($string);
+-  }
+-
+-  // Iteratively remove any invalid protocol found.
+-
+-  do {
+-    $before = $string;
+-    $colonpos = strpos($string, ':');
+-    if ($colonpos > 0) {
+-      // We found a colon, possibly a protocol. Verify.
+-      $protocol = substr($string, 0, $colonpos);
+-      // If a colon is preceded by a slash, question mark or hash, it cannot
+-      // possibly be part of the URL scheme. This must be a relative URL,
+-      // which inherits the (safe) protocol of the base document.
+-      if (preg_match('![/?#]!', $protocol)) {
+-        break;
+-      }
+-      // Per RFC2616, section 3.2.3 (URI Comparison) scheme comparison must be case-insensitive
+-      // Check if this is a disallowed protocol.
+-      if (!isset($allowed_protocols[strtolower($protocol)])) {
+-        $string = substr($string, $colonpos + 1);
+-      }
+-    }
+-  } while ($before != $string);
+-  return check_plain($string);
+-}
+-
+-/**
+  * @} End of "Standard filters".
+  */
+diff --git a/modules/system/system.admin.inc b/modules/system/system.admin.inc
+index 42fd311..315390c 100644
+--- a/modules/system/system.admin.inc
++++ b/modules/system/system.admin.inc
+@@ -1487,7 +1487,8 @@ function system_rss_feeds_settings() {
+  */
+ function system_date_time_settings() {
+   drupal_add_js(drupal_get_path('module', 'system') .'/system.js', 'module');
+-  drupal_add_js(array('dateTime' => array('lookup' => url('admin/settings/date-time/lookup'))), 'setting');
++  $ajax_path = 'admin/settings/date-time/lookup';
++  drupal_add_js(array('dateTime' => array('lookup' => url($ajax_path, array('query' => array('token' => drupal_get_token($ajax_path)))))), 'setting');
+ 
+   // Date settings:
+   $zones = _system_zonelist();
+@@ -1646,6 +1647,11 @@ function system_date_time_settings_submit($form, &$form_state) {
+  * Return the date for a given format string via Ajax.
+  */
+ function system_date_time_lookup() {
++  // This callback is protected with a CSRF token because user input from the
++  // query string is reflected in the output.
++  if (!isset($_GET['token']) || !drupal_valid_token($_GET['token'], 'admin/settings/date-time/lookup')) {
++    return MENU_ACCESS_DENIED;
++  }
+   $result = format_date(time(), 'custom', $_GET['format']);
+   drupal_json($result);
+ }
+diff --git a/modules/system/system.install b/modules/system/system.install
+index 33f4c4d..9a4be93 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -1061,7 +1061,7 @@ function system_schema() {
+         'default' => 0),
+       'session' => array(
+         'description' => 'The serialized contents of $_SESSION, an array of name/value pairs that persists across page requests by this session ID. Drupal loads $_SESSION from here at the start of each request and saves it at the end.',
+-        'type' => 'text',
++        'type' => 'blob',
+         'not null' => FALSE,
+         'size' => 'big')
+       ),
+@@ -2737,6 +2737,15 @@ function system_update_6055() {
+ }
+ 
+ /**
++ * Convert {session} data storage to blob.
++ */
++function system_update_6056() {
++  $ret = array();
++  db_change_field($ret, 'sessions', 'session', 'session', array('type' => 'blob', 'not null' => FALSE, 'size' => 'big'));
++  return $ret;
++}
++
++/**
+  * @} End of "defgroup updates-6.x-extra".
+  * The next series of updates should start at 7000.
+  */
+diff --git a/modules/system/system.js b/modules/system/system.js
+index 48fd016..24f998c 100644
+--- a/modules/system/system.js
++++ b/modules/system/system.js
+@@ -101,7 +101,7 @@ Drupal.behaviors.dateTime = function(context) {
+   // Attach keyup handler to custom format inputs.
+   $('input.custom-format:not(.date-time-processed)', context).addClass('date-time-processed').keyup(function() {
+     var input = $(this);
+-    var url = Drupal.settings.dateTime.lookup +(Drupal.settings.dateTime.lookup.match(/\?q=/) ? "&format=" : "?format=") + encodeURIComponent(input.val());
++    var url = Drupal.settings.dateTime.lookup +(Drupal.settings.dateTime.lookup.match(/\?/) ? "&format=" : "?format=") + encodeURIComponent(input.val());
+     $.getJSON(url, function(data) {
+       $("div.description span", input.parent()).html(data);
+     });
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 46aecb2..37ac1f4 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '6.37');
++define('VERSION', '6.38');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 00046b6..8b5a377 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -670,8 +670,15 @@ function user_user($type, &$edit, &$account, $category = NULL) {
+     return _user_edit_validate((isset($account->uid) ? $account->uid : FALSE), $edit);
+   }
+ 
+-  if ($type == 'submit' && $category == 'account') {
+-    return _user_edit_submit((isset($account->uid) ? $account->uid : FALSE), $edit);
++  if ($type == 'submit') {
++    if ($category == 'account') {
++      return _user_edit_submit((isset($account->uid) ? $account->uid : FALSE), $edit);
++    }
++    elseif (isset($edit['roles'])) {
++      // Filter out roles with empty values to avoid granting extra roles when
++      // processing custom form submissions.
++      $edit['roles'] = array_filter($edit['roles']);
++    }
+   }
+ 
+   if ($type == 'categories') {
+@@ -681,7 +688,7 @@ function user_user($type, &$edit, &$account, $category = NULL) {
+ 
+ function user_login_block() {
+   $form = array(
+-    '#action' => url($_GET['q'], array('query' => drupal_get_destination())),
++    '#action' => url($_GET['q'], array('query' => drupal_get_destination(), 'external' => FALSE)),
+     '#id' => 'user-login-form',
+     '#validate' => user_login_default_validators(),
+     '#submit' => array('user_login_submit'),
+diff --git a/robots.txt b/robots.txt
+index 6647f69..bcce277 100644
+--- a/robots.txt
++++ b/robots.txt
+@@ -11,10 +11,10 @@
+ # Ignored: http://example.com/site/robots.txt
+ #
+ # For more information about the robots.txt standard, see:
+-# http://www.robotstxt.org/wc/robots.html
++# http://www.robotstxt.org/robotstxt.html
+ #
+ # For syntax checking, see:
+-# http://www.sxw.org.uk/computing/robots/check.html
++# http://www.frobee.com/robots-txt-check
+ 
+ User-agent: *
+ Crawl-delay: 10
