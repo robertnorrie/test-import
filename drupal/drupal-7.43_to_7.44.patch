@@ -1,0 +1,39 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 72d9d8f..2eea11b 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.44, 2016-06-15
++-----------------------
++- Fixed security issues (privilege escalation). See SA-CORE-2016-002.
++
+ Drupal 7.43, 2016-02-24
+ -----------------------
+ - Fixed security issues (multiple vulnerabilities). See SA-CORE-2016-001.
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 0428bd3..aea69a2 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.43');
++define('VERSION', '7.44');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/modules/user/user.module b/modules/user/user.module
+index d38de69..9b00392 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -1162,7 +1162,7 @@ function user_account_form(&$form, &$form_state) {
+   $form['account']['roles'] = array(
+     '#type' => 'checkboxes',
+     '#title' => t('Roles'),
+-    '#default_value' => (!$register && isset($account->roles) ? array_keys($account->roles) : array()),
++    '#default_value' => (!$register && !empty($account->roles) ? array_keys(array_filter($account->roles)) : array()),
+     '#options' => $roles,
+     '#access' => $roles && user_access('administer permissions'),
+     DRUPAL_AUTHENTICATED_RID => $checkbox_authenticated,
