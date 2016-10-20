@@ -1,0 +1,1042 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 4853101..1cfc6da 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,25 @@
+ 
++Drupal 7.51, 2016-10-05
++-----------------------
++- The Update module now also checks for updates to a disabled theme that is
++  used as an admin theme.
++- Exceptions thrown in dblog_watchdog() are now caught and ignored.
++- Clarified the warning that appears when modules are missing or have moved.
++- Log messages are now XSS filtered on display.
++- Draggable tables now work on touch screen devices.
++- Added a setting for allowing double underscores in CSS identifiers
++  (https://www.drupal.org/node/2810369).
++- If a user navigates away from a page while an Ajax request is running they
++  will no longer get an error message saying "An Ajax HTTP request terminated
++  abnormally".
++- The system_region_list() API function now takes an optional third parameter
++  which allows region name translations to be skipped when they are not needed
++  (API addition: https://www.drupal.org/node/2810365).
++- Numerous performance improvements.
++- Numerous bug fixes.
++- Numerous API documentation improvements.
++- Additional automated test coverage.
++
+ Drupal 7.50, 2016-07-07 
+ -----------------------
+ - Added a new "administer fields" permission for trusted users, which is
+diff --git a/MAINTAINERS.txt b/MAINTAINERS.txt
+index b076fd7..5603a43 100644
+--- a/MAINTAINERS.txt
++++ b/MAINTAINERS.txt
+@@ -145,7 +145,6 @@ User experience and usability
+ Node Access
+ - Moshe Weitzman 'moshe weitzman' https://www.drupal.org/u/moshe-weitzman
+ - Ken Rickard 'agentrickard' https://www.drupal.org/u/agentrickard
+-- Jess Myrbo 'xjm' https://www.drupal.org/u/xjm
+ 
+ 
+ Security team
+@@ -268,7 +267,6 @@ System module
+ - ?
+ 
+ Taxonomy module
+-- Jess Myrbo 'xjm' https://www.drupal.org/u/xjm
+ - Nathaniel Catchpole 'catch' https://www.drupal.org/u/catch
+ - Benjamin Doherty 'bangpound' https://www.drupal.org/u/bangpound
+ 
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index e42f542..3c41c69 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.50');
++define('VERSION', '7.51');
+ 
+ /**
+  * Core API compatibility.
+@@ -1072,8 +1072,8 @@ function _drupal_get_filename_perform_file_scan($type, $name) {
+  */
+ function _drupal_get_filename_fallback_trigger_error($type, $name, $error_type) {
+   // Hide messages due to known bugs that will appear on a lot of sites.
+-  // @todo Remove this in https://www.drupal.org/node/2762241
+-  if (empty($name) || ($type == 'module' && $name == 'default')) {
++  // @todo Remove this in https://www.drupal.org/node/2383823
++  if (empty($name)) {
+     return;
+   }
+ 
+@@ -1085,7 +1085,7 @@ function _drupal_get_filename_fallback_trigger_error($type, $name, $error_type)
+     // triggered during low-level operations that cannot necessarily be
+     // interrupted by a watchdog() call.
+     if ($error_type == 'missing') {
+-      _drupal_trigger_error_with_delayed_logging(format_string('The following @type is missing from the file system: %name. In order to fix this, put the @type back in its original location. For more information, see <a href="@documentation">the documentation page</a>.', array('@type' => $type, '%name' => $name, '@documentation' => 'https://www.drupal.org/node/2487215')), E_USER_WARNING);
++      _drupal_trigger_error_with_delayed_logging(format_string('The following @type is missing from the file system: %name. For information about how to fix this, see <a href="@documentation">the documentation page</a>.', array('@type' => $type, '%name' => $name, '@documentation' => 'https://www.drupal.org/node/2487215')), E_USER_WARNING);
+     }
+     elseif ($error_type == 'moved') {
+       _drupal_trigger_error_with_delayed_logging(format_string('The following @type has moved within the file system: %name. In order to fix this, clear caches or put the @type back in its original location. For more information, see <a href="@documentation">the documentation page</a>.', array('@type' => $type, '%name' => $name, '@documentation' => 'https://www.drupal.org/node/2487215')), E_USER_WARNING);
+diff --git a/includes/common.inc b/includes/common.inc
+index c97704c..339a69b 100644
+--- a/includes/common.inc
++++ b/includes/common.inc
+@@ -3900,6 +3900,21 @@ function drupal_delete_file_if_stale($uri) {
+  *   The cleaned identifier.
+  */
+ function drupal_clean_css_identifier($identifier, $filter = array(' ' => '-', '_' => '-', '/' => '-', '[' => '-', ']' => '')) {
++  // Use the advanced drupal_static() pattern, since this is called very often.
++  static $drupal_static_fast;
++  if (!isset($drupal_static_fast)) {
++    $drupal_static_fast['allow_css_double_underscores'] = &drupal_static(__FUNCTION__ . ':allow_css_double_underscores');
++  }
++  $allow_css_double_underscores = &$drupal_static_fast['allow_css_double_underscores'];
++  if (!isset($allow_css_double_underscores)) {
++    $allow_css_double_underscores = variable_get('allow_css_double_underscores', FALSE);
++  }
++
++  // Preserve BEM-style double-underscores depending on custom setting.
++  if ($allow_css_double_underscores) {
++    $filter['__'] = '__';
++  }
++
+   // By default, we filter using Drupal's coding standards.
+   $identifier = strtr($identifier, $filter);
+ 
+diff --git a/includes/database/database.inc b/includes/database/database.inc
+index 21b7c22..6879f69 100644
+--- a/includes/database/database.inc
++++ b/includes/database/database.inc
+@@ -296,6 +296,20 @@
+    */
+   protected $prefixReplace = array();
+ 
++  /**
++   * List of escaped database, table, and field names, keyed by unescaped names.
++   *
++   * @var array
++   */
++  protected $escapedNames = array();
++
++  /**
++   * List of escaped aliases names, keyed by unescaped aliases.
++   *
++   * @var array
++   */
++  protected $escapedAliases = array();
++
+   function __construct($dsn, $username, $password, $driver_options = array()) {
+     // Initialize and prepare the connection prefix.
+     $this->setPrefix(isset($this->connectionOptions['prefix']) ? $this->connectionOptions['prefix'] : '');
+@@ -919,11 +933,14 @@ public function schema() {
+    * For some database drivers, it may also wrap the table name in
+    * database-specific escape characters.
+    *
+-   * @return
++   * @return string
+    *   The sanitized table name string.
+    */
+   public function escapeTable($table) {
+-    return preg_replace('/[^A-Za-z0-9_.]+/', '', $table);
++    if (!isset($this->escapedNames[$table])) {
++      $this->escapedNames[$table] = preg_replace('/[^A-Za-z0-9_.]+/', '', $table);
++    }
++    return $this->escapedNames[$table];
+   }
+ 
+   /**
+@@ -933,11 +950,14 @@ public function escapeTable($table) {
+    * For some database drivers, it may also wrap the field name in
+    * database-specific escape characters.
+    *
+-   * @return
++   * @return string
+    *   The sanitized field name string.
+    */
+   public function escapeField($field) {
+-    return preg_replace('/[^A-Za-z0-9_.]+/', '', $field);
++    if (!isset($this->escapedNames[$field])) {
++      $this->escapedNames[$field] = preg_replace('/[^A-Za-z0-9_.]+/', '', $field);
++    }
++    return $this->escapedNames[$field];
+   }
+ 
+   /**
+@@ -948,11 +968,14 @@ public function escapeField($field) {
+    * DatabaseConnection::escapeTable(), this doesn't allow the period (".")
+    * because that is not allowed in aliases.
+    *
+-   * @return
++   * @return string
+    *   The sanitized field name string.
+    */
+   public function escapeAlias($field) {
+-    return preg_replace('/[^A-Za-z0-9_]+/', '', $field);
++    if (!isset($this->escapedAliases[$field])) {
++      $this->escapedAliases[$field] = preg_replace('/[^A-Za-z0-9_]+/', '', $field);
++    }
++    return $this->escapedAliases[$field];
+   }
+ 
+   /**
+diff --git a/includes/database/mysql/database.inc b/includes/database/mysql/database.inc
+index 4a44e68..356e039 100644
+--- a/includes/database/mysql/database.inc
++++ b/includes/database/mysql/database.inc
+@@ -240,7 +240,7 @@ public function utf8mb4IsSupported() {
+ 
+     // Ensure that the MySQL server supports large prefixes and utf8mb4.
+     try {
+-      $this->query("CREATE TABLE {drupal_utf8mb4_test} (id VARCHAR(255), PRIMARY KEY(id(255))) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci ROW_FORMAT=DYNAMIC");
++      $this->query("CREATE TABLE {drupal_utf8mb4_test} (id VARCHAR(255), PRIMARY KEY(id(255))) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci ROW_FORMAT=DYNAMIC ENGINE=INNODB");
+     }
+     catch (Exception $e) {
+       return FALSE;
+diff --git a/includes/file.inc b/includes/file.inc
+index b15e454..de9d17d 100644
+--- a/includes/file.inc
++++ b/includes/file.inc
+@@ -273,7 +273,9 @@ function file_default_scheme() {
+  *   The normalized URI.
+  */
+ function file_stream_wrapper_uri_normalize($uri) {
+-  $scheme = file_uri_scheme($uri);
++  // Inline file_uri_scheme() function call for performance reasons.
++  $position = strpos($uri, '://');
++  $scheme = $position ? substr($uri, 0, $position) : FALSE;
+ 
+   if ($scheme && file_stream_wrapper_valid_scheme($scheme)) {
+     $target = file_uri_target($uri);
+diff --git a/includes/locale.inc b/includes/locale.inc
+index f041659..11f1413 100644
+--- a/includes/locale.inc
++++ b/includes/locale.inc
+@@ -667,9 +667,6 @@ function locale_add_language($langcode, $name = NULL, $native = NULL, $direction
+  *   translations).
+  */
+ function _locale_import_po($file, $langcode, $mode, $group = NULL) {
+-  // Try to allocate enough time to parse and import the data.
+-  drupal_set_time_limit(240);
+-
+   // Check if we have the language already in the database.
+   if (!db_query("SELECT COUNT(language) FROM {languages} WHERE language = :language", array(':language' => $langcode))->fetchField()) {
+     drupal_set_message(t('The language selected for import is not supported.'), 'error');
+@@ -753,6 +750,12 @@ function _locale_import_read_po($op, $file, $mode = NULL, $lang = NULL, $group =
+   $lineno = 0;
+ 
+   while (!feof($fd)) {
++    // Refresh the time limit every 10 parsed rows to ensure there is always
++    // enough time to import the data for large PO files.
++    if (!($lineno % 10)) {
++      drupal_set_time_limit(30);
++    }
++
+     // A line should not be longer than 10 * 1024.
+     $line = fgets($fd, 10 * 1024);
+ 
+diff --git a/includes/theme.inc b/includes/theme.inc
+index ff54d6e..9b606e9 100644
+--- a/includes/theme.inc
++++ b/includes/theme.inc
+@@ -1248,6 +1248,7 @@ function path_to_theme() {
+ function drupal_find_theme_functions($cache, $prefixes) {
+   $implementations = array();
+   $functions = get_defined_functions();
++  $theme_functions = preg_grep('/^(' . implode(')|(', $prefixes) . ')_/', $functions['user']);
+ 
+   foreach ($cache as $hook => $info) {
+     foreach ($prefixes as $prefix) {
+@@ -1264,7 +1265,7 @@ function drupal_find_theme_functions($cache, $prefixes) {
+       // intermediary suggestion.
+       $pattern = isset($info['pattern']) ? $info['pattern'] : ($hook . '__');
+       if (!isset($info['base hook']) && !empty($pattern)) {
+-        $matches = preg_grep('/^' . $prefix . '_' . $pattern . '/', $functions['user']);
++        $matches = preg_grep('/^' . $prefix . '_' . $pattern . '/', $theme_functions);
+         if ($matches) {
+           foreach ($matches as $match) {
+             $new_hook = substr($match, strlen($prefix) + 1);
+@@ -2638,7 +2639,7 @@ function template_preprocess_page(&$variables) {
+   // Move some variables to the top level for themer convenience and template cleanliness.
+   $variables['show_messages'] = $variables['page']['#show_messages'];
+ 
+-  foreach (system_region_list($GLOBALS['theme']) as $region_key => $region_name) {
++  foreach (system_region_list($GLOBALS['theme'], REGIONS_ALL, FALSE) as $region_key) {
+     if (!isset($variables['page'][$region_key])) {
+       $variables['page'][$region_key] = array();
+     }
+diff --git a/misc/ajax.js b/misc/ajax.js
+index bb4a6e1..c944ebb 100644
+--- a/misc/ajax.js
++++ b/misc/ajax.js
+@@ -476,7 +476,7 @@ Drupal.ajax.prototype.getEffect = function (response) {
+  * Handler for the form redirection error.
+  */
+ Drupal.ajax.prototype.error = function (xmlhttprequest, uri, customMessage) {
+-  alert(Drupal.ajaxError(xmlhttprequest, uri, customMessage));
++  Drupal.displayAjaxError(Drupal.ajaxError(xmlhttprequest, uri, customMessage));
+   // Remove the progress element.
+   if (this.progress.element) {
+     $(this.progress.element).remove();
+diff --git a/misc/autocomplete.js b/misc/autocomplete.js
+index d71441b..af09071 100644
+--- a/misc/autocomplete.js
++++ b/misc/autocomplete.js
+@@ -310,7 +310,7 @@ Drupal.ACDB.prototype.search = function (searchString) {
+         }
+       },
+       error: function (xmlhttp) {
+-        alert(Drupal.ajaxError(xmlhttp, db.uri));
++        Drupal.displayAjaxError(Drupal.ajaxError(xmlhttp, db.uri));
+       }
+     });
+   }, this.delay);
+diff --git a/misc/drupal.js b/misc/drupal.js
+index 427c4a1..03eef50 100644
+--- a/misc/drupal.js
++++ b/misc/drupal.js
+@@ -414,6 +414,29 @@ Drupal.getSelection = function (element) {
+ };
+ 
+ /**
++ * Add a global variable which determines if the window is being unloaded.
++ *
++ * This is primarily used by Drupal.displayAjaxError().
++ */
++Drupal.beforeUnloadCalled = false;
++$(window).bind('beforeunload pagehide', function () {
++    Drupal.beforeUnloadCalled = true;
++});
++
++/**
++ * Displays a JavaScript error from an Ajax response when appropriate to do so.
++ */
++Drupal.displayAjaxError = function (message) {
++  // Skip displaying the message if the user deliberately aborted (for example,
++  // by reloading the page or navigating to a different page) while the Ajax
++  // request was still ongoing. See, for example, the discussion at
++  // http://stackoverflow.com/questions/699941/handle-ajax-error-when-a-user-clicks-refresh.
++  if (!Drupal.beforeUnloadCalled) {
++    alert(message);
++  }
++};
++
++/**
+  * Build an error message from an Ajax response.
+  */
+ Drupal.ajaxError = function (xmlhttp, uri, customMessage) {
+diff --git a/misc/tabledrag.js b/misc/tabledrag.js
+index 3cc2701..4e07784 100644
+--- a/misc/tabledrag.js
++++ b/misc/tabledrag.js
+@@ -106,8 +106,10 @@ Drupal.tableDrag = function (table, tableSettings) {
+ 
+   // Add mouse bindings to the document. The self variable is passed along
+   // as event handlers do not have direct access to the tableDrag object.
+-  $(document).bind('mousemove', function (event) { return self.dragRow(event, self); });
+-  $(document).bind('mouseup', function (event) { return self.dropRow(event, self); });
++  $(document).bind('mousemove pointermove', function (event) { return self.dragRow(event, self); });
++  $(document).bind('mouseup pointerup', function (event) { return self.dropRow(event, self); });
++  $(document).bind('touchmove', function (event) { return self.dragRow(event.originalEvent.touches[0], self); });
++  $(document).bind('touchend', function (event) { return self.dropRow(event.originalEvent.touches[0], self); });
+ };
+ 
+ /**
+@@ -274,7 +276,10 @@ Drupal.tableDrag.prototype.makeDraggable = function (item) {
+   });
+ 
+   // Add the mousedown action for the handle.
+-  handle.mousedown(function (event) {
++  handle.bind('mousedown touchstart pointerdown', function (event) {
++    if (event.originalEvent.type == "touchstart") {
++      event = event.originalEvent.touches[0];
++    }
+     // Create a new dragObject recording the event information.
+     self.dragObject = {};
+     self.dragObject.initMouseOffset = self.getMouseOffset(item, event);
+diff --git a/modules/aggregator/aggregator.processor.inc b/modules/aggregator/aggregator.processor.inc
+index 44ed549..534cca5 100644
+--- a/modules/aggregator/aggregator.processor.inc
++++ b/modules/aggregator/aggregator.processor.inc
+@@ -72,7 +72,7 @@ function aggregator_aggregator_remove($feed) {
+  */
+ function aggregator_form_aggregator_admin_form_alter(&$form, $form_state) {
+   if (in_array('aggregator', variable_get('aggregator_processors', array('aggregator')))) {
+-    $info = module_invoke('aggregator', 'aggregator_process', 'info');
++    $info = module_invoke('aggregator', 'aggregator_process_info');
+     $items = drupal_map_assoc(array(3, 5, 10, 15, 20, 25), '_aggregator_items');
+     $period = drupal_map_assoc(array(3600, 10800, 21600, 32400, 43200, 86400, 172800, 259200, 604800, 1209600, 2419200, 4838400, 9676800), 'format_interval');
+     $period[AGGREGATOR_CLEAR_NEVER] = t('Never');
+diff --git a/modules/block/block.module b/modules/block/block.module
+index ca41da7..73e1162 100644
+--- a/modules/block/block.module
++++ b/modules/block/block.module
+@@ -285,8 +285,7 @@ function block_page_build(&$page) {
+     // Append region description if we are rendering the regions demo page.
+     $item = menu_get_item();
+     if ($item['path'] == 'admin/structure/block/demo/' . $theme) {
+-      $visible_regions = array_keys(system_region_list($theme, REGIONS_VISIBLE));
+-      foreach ($visible_regions as $region) {
++      foreach (system_region_list($theme, REGIONS_VISIBLE, FALSE) as $region) {
+         $description = '<div class="block-region">' . $all_regions[$region] . '</div>';
+         $page[$region]['block_description'] = array(
+           '#markup' => $description,
+diff --git a/modules/dblog/dblog.admin.inc b/modules/dblog/dblog.admin.inc
+index 7c1c0e2..0d5780c 100644
+--- a/modules/dblog/dblog.admin.inc
++++ b/modules/dblog/dblog.admin.inc
+@@ -294,11 +294,18 @@ function theme_dblog_message($variables) {
+     else {
+       $output = t($event->message, unserialize($event->variables));
+     }
++    // If the output is expected to be a link, strip all the tags and
++    // special characters by using filter_xss() without any allowed tags.
++    // If not, use filter_xss_admin() to allow some tags.
+     if ($variables['link'] && isset($event->wid)) {
+-      // Truncate message to 56 chars.
++      // Truncate message to 56 chars after stripping all the tags.
+       $output = truncate_utf8(filter_xss($output, array()), 56, TRUE, TRUE);
+       $output = l($output, 'admin/reports/event/' . $event->wid, array('html' => TRUE));
+     }
++    else {
++      // Prevent XSS in log detail pages.
++      $output = filter_xss_admin($output);
++    }
+   }
+   return $output;
+ }
+diff --git a/modules/dblog/dblog.install b/modules/dblog/dblog.install
+index abfd9a2..c2e4119 100644
+--- a/modules/dblog/dblog.install
++++ b/modules/dblog/dblog.install
+@@ -155,5 +155,14 @@ function dblog_update_7002() {
+ }
+ 
+ /**
++ * Account for possible legacy systems where dblog was not installed.
++ */
++function dblog_update_7003() {
++  if (!db_table_exists('watchdog')) {
++    db_create_table('watchdog', drupal_get_schema_unprocessed('dblog', 'watchdog'));
++  }
++}
++
++/**
+  * @} End of "addtogroup updates-7.x-extra".
+  */
+diff --git a/modules/dblog/dblog.module b/modules/dblog/dblog.module
+index eb79faf..df305a2 100644
+--- a/modules/dblog/dblog.module
++++ b/modules/dblog/dblog.module
+@@ -147,20 +147,27 @@ function dblog_watchdog(array $log_entry) {
+   if (!function_exists('drupal_substr')) {
+     require_once DRUPAL_ROOT . '/includes/unicode.inc';
+   }
+-  Database::getConnection('default', 'default')->insert('watchdog')
+-    ->fields(array(
+-      'uid' => $log_entry['uid'],
+-      'type' => drupal_substr($log_entry['type'], 0, 64),
+-      'message' => $log_entry['message'],
+-      'variables' => serialize($log_entry['variables']),
+-      'severity' => $log_entry['severity'],
+-      'link' => drupal_substr($log_entry['link'], 0, 255),
+-      'location' => $log_entry['request_uri'],
+-      'referer' => $log_entry['referer'],
+-      'hostname' => drupal_substr($log_entry['ip'], 0, 128),
+-      'timestamp' => $log_entry['timestamp'],
+-    ))
+-    ->execute();
++  try {
++    Database::getConnection('default', 'default')->insert('watchdog')
++      ->fields(array(
++        'uid' => $log_entry['uid'],
++        'type' => drupal_substr($log_entry['type'], 0, 64),
++        'message' => $log_entry['message'],
++        'variables' => serialize($log_entry['variables']),
++        'severity' => $log_entry['severity'],
++        'link' => drupal_substr($log_entry['link'], 0, 255),
++        'location' => $log_entry['request_uri'],
++        'referer' => $log_entry['referer'],
++        'hostname' => drupal_substr($log_entry['ip'], 0, 128),
++        'timestamp' => $log_entry['timestamp'],
++      ))
++      ->execute();
++  }
++  catch (Exception $e) {
++    // Exception is ignored so that watchdog does not break pages during the
++    // installation process or is not able to create the watchdog table during
++    // installation.
++  }
+ }
+ 
+ /**
+diff --git a/modules/dblog/dblog.test b/modules/dblog/dblog.test
+index a233d97..b0a58ba 100644
+--- a/modules/dblog/dblog.test
++++ b/modules/dblog/dblog.test
+@@ -521,6 +521,33 @@ protected function testFilter() {
+   }
+ 
+   /**
++   * Verifies that exceptions are caught in dblog_watchdog().
++   */
++  protected function testDBLogException() {
++    $log = array(
++      'type'        => 'custom',
++      'message'     => 'Log entry added to test watchdog handling of Exceptions.',
++      'variables'   => array(),
++      'severity'    => WATCHDOG_NOTICE,
++      'link'        => NULL,
++      'user'        => $this->big_user,
++      'uid'         => isset($this->big_user->uid) ? $this->big_user->uid : 0,
++      'request_uri' => request_uri(),
++      'referer'     => $_SERVER['HTTP_REFERER'],
++      'ip'          => ip_address(),
++      'timestamp'   => REQUEST_TIME,
++    );
++
++    // Remove watchdog table temporarily to simulate it missing during
++    // installation.
++    db_query("DROP TABLE {watchdog}");
++
++    // Add a watchdog entry.
++    // This should not throw an Exception, but fail silently.
++    dblog_watchdog($log);
++  }
++
++  /**
+    * Gets the database log event information from the browser page.
+    *
+    * @return array
+@@ -638,4 +665,32 @@ protected function assertLogMessage($log_message, $message) {
+     // Document Object Model (DOM).
+     $this->assertLink(html_entity_decode($message_text), 0, $message);
+   }
++
++  /**
++   * Make sure HTML tags are filtered out in the log detail page.
++   */
++  public function testLogMessageSanitized() {
++    $this->drupalLogin($this->big_user);
++
++    // Make sure dangerous HTML tags are filtered out in log detail page.
++    $log = array(
++      'uid' => 0,
++      'type' => 'custom',
++      'message' => "<script>alert('foo');</script> <strong>Lorem ipsum</strong>",
++      'variables' => NULL,
++      'severity' => WATCHDOG_NOTICE,
++      'link' => 'foo/bar',
++      'request_uri' => 'http://example.com?dblog=1',
++      'referer' => 'http://example.org?dblog=2',
++      'ip' => '0.0.1.0',
++      'timestamp' => REQUEST_TIME,
++    );
++    dblog_watchdog($log);
++
++    $wid = db_query('SELECT MAX(wid) FROM {watchdog}')->fetchField();
++    $this->drupalGet('admin/reports/event/' . $wid);
++    $this->assertResponse(200);
++    $this->assertNoRaw("<script>alert('foo');</script>");
++    $this->assertRaw("alert('foo'); <strong>Lorem ipsum</strong>");
++  }
+ }
+diff --git a/modules/field/field.crud.inc b/modules/field/field.crud.inc
+index ba37708..7c0e3a1 100644
+--- a/modules/field/field.crud.inc
++++ b/modules/field/field.crud.inc
+@@ -189,7 +189,7 @@ function field_create_field($field) {
+   }
+ 
+   // Clear caches
+-  field_cache_clear(TRUE);
++  field_cache_clear();
+ 
+   // Invoke external hooks after the cache is cleared for API consistency.
+   module_invoke_all('field_create_field', $field);
+@@ -288,7 +288,7 @@ function field_update_field($field) {
+   drupal_write_record('field_config', $field, $primary_key);
+ 
+   // Clear caches
+-  field_cache_clear(TRUE);
++  field_cache_clear();
+ 
+   // Invoke external hooks after the cache is cleared for API consistency.
+   module_invoke_all('field_update_field', $field, $prior_field, $has_data);
+@@ -430,7 +430,7 @@ function field_delete_field($field_name) {
+     ->execute();
+ 
+   // Clear the cache.
+-  field_cache_clear(TRUE);
++  field_cache_clear();
+ 
+   module_invoke_all('field_delete_field', $field);
+ }
+diff --git a/modules/locale/locale.admin.inc b/modules/locale/locale.admin.inc
+index e813962..acf6eb2 100644
+--- a/modules/locale/locale.admin.inc
++++ b/modules/locale/locale.admin.inc
+@@ -1194,7 +1194,7 @@ function locale_translate_edit_form_submit($form, &$form_state) {
+     $translation = db_query("SELECT translation FROM {locales_target} WHERE lid = :lid AND language = :language", array(':lid' => $lid, ':language' => $key))->fetchField();
+     if (!empty($value)) {
+       // Only update or insert if we have a value to use.
+-      if (!empty($translation)) {
++      if (is_string($translation)) {
+         db_update('locales_target')
+           ->fields(array(
+             'translation' => $value,
+diff --git a/modules/locale/locale.test b/modules/locale/locale.test
+index d2af767..6fcf06f 100644
+--- a/modules/locale/locale.test
++++ b/modules/locale/locale.test
+@@ -393,6 +393,16 @@ function testStringTranslation() {
+     // The indicator should not be here.
+     $this->assertNoRaw($language_indicator, 'String is translated.');
+ 
++    // Verify that a translation set which has an empty target string can be
++    // updated without any database error.
++    db_update('locales_target')
++      ->fields(array('translation' => ''))
++      ->condition('language', $langcode, '=')
++      ->condition('lid', $lid, '=')
++      ->execute();
++    $this->drupalPost('admin/config/regional/translate/edit/' . $lid, $edit, t('Save translations'));
++    $this->assertText(t('The string has been saved.'), 'The string has been saved.');
++
+     // Try to edit a non-existent string and ensure we're redirected correctly.
+     // Assuming we don't have 999,999 strings already.
+     $random_lid = 999999;
+diff --git a/modules/simpletest/tests/common.test b/modules/simpletest/tests/common.test
+index 92aefe4..0f991c3 100644
+--- a/modules/simpletest/tests/common.test
++++ b/modules/simpletest/tests/common.test
+@@ -947,6 +947,31 @@ function testDrupalCleanCSSIdentifier() {
+ 
+     // Verify that invalid characters (including non-breaking space) are stripped from the identifier.
+     $this->assertIdentical(drupal_clean_css_identifier('invalid !"#$%&\'()*+,./:;<=>?@[\\]^`{|}~ identifier', array()), 'invalididentifier', 'Strip invalid characters.');
++
++    // Verify that double underscores are replaced in the identifier by default.
++    $identifier = 'css__identifier__with__double__underscores';
++    $expected = 'css--identifier--with--double--underscores';
++    $this->assertIdentical(drupal_clean_css_identifier($identifier), $expected, 'Verify double underscores are replaced with double hyphens by default.');
++
++    // Verify that double underscores are preserved in the identifier if the
++    // variable allow_css_double_underscores is set to TRUE.
++    $this->setAllowCSSDoubleUnderscores(TRUE);
++    $this->assertIdentical(drupal_clean_css_identifier($identifier), $identifier, 'Verify double underscores are preserved if the allow_css_double_underscores set to TRUE.');
++
++    // To avoid affecting other test cases, set the variable
++    // allow_css_double_underscores to FALSE which is the default value.
++    $this->setAllowCSSDoubleUnderscores(FALSE);
++  }
++
++  /**
++   * Set the variable allow_css_double_underscores and reset the cache.
++   *
++   * @param $value bool
++   *   A new value to be set to allow_css_double_underscores.
++   */
++  function setAllowCSSDoubleUnderscores($value) {
++    $GLOBALS['conf']['allow_css_double_underscores'] = $value;
++    drupal_static_reset('drupal_clean_css_identifier:allow_css_double_underscores');
+   }
+ 
+   /**
+@@ -1254,7 +1279,7 @@ public static function getInfo() {
+   function testRegions() {
+     global $theme_key;
+ 
+-    $block_regions = array_keys(system_region_list($theme_key));
++    $block_regions = system_region_list($theme_key, REGIONS_ALL, FALSE);
+     $delimiter = $this->randomName(32);
+     $values = array();
+     // Set some random content for each region available.
+diff --git a/modules/simpletest/tests/update_script_test.install b/modules/simpletest/tests/update_script_test.install
+index 6955ef1..4024fb4 100644
+--- a/modules/simpletest/tests/update_script_test.install
++++ b/modules/simpletest/tests/update_script_test.install
+@@ -31,6 +31,19 @@ function update_script_test_requirements($phase) {
+           'severity' => REQUIREMENT_ERROR,
+         );
+         break;
++      case REQUIREMENT_INFO:
++        $requirements['update_script_test_stop'] = array(
++          'title' => 'Update script test stop',
++          'value' => 'Error',
++          'description' => 'This is a requirements error provided by the update_script_test module to stop the page redirect for the info.',
++          'severity' => REQUIREMENT_ERROR,
++        );
++        $requirements['update_script_test'] = array(
++          'title' => 'Update script test',
++          'description' => 'This is a requirements info provided by the update_script_test module.',
++          'severity' => REQUIREMENT_INFO,
++        );
++        break;
+     }
+   }
+ 
+diff --git a/modules/statistics/statistics.test b/modules/statistics/statistics.test
+index 7e038d6..50accd7 100644
+--- a/modules/statistics/statistics.test
++++ b/modules/statistics/statistics.test
+@@ -35,7 +35,7 @@ function setUp() {
+         'title' => 'test',
+         'path' => 'node/1',
+         'url' => 'http://example.com',
+-        'hostname' => '192.168.1.1',
++        'hostname' => '1.2.3.3',
+         'uid' => 0,
+         'sid' => 10,
+         'timer' => 10,
+@@ -268,7 +268,7 @@ public static function getInfo() {
+    */
+   function testIPAddressBlocking() {
+     // IP address for testing.
+-    $test_ip_address = '192.168.1.1';
++    $test_ip_address = '1.2.3.3';
+ 
+     // Verify the IP address from accesslog appears on the top visitors page
+     // and that a 'block IP address' link is displayed.
+diff --git a/modules/system/system.admin.inc b/modules/system/system.admin.inc
+index 8ef7d7c..cdcc78f 100644
+--- a/modules/system/system.admin.inc
++++ b/modules/system/system.admin.inc
+@@ -2597,6 +2597,8 @@ function theme_status_report($variables) {
+     if (empty($requirement['#type'])) {
+       $severity = $severities[isset($requirement['severity']) ? (int) $requirement['severity'] : REQUIREMENT_OK];
+       $severity['icon'] = '<div title="' . $severity['title'] . '"><span class="element-invisible">' . $severity['title'] . '</span></div>';
++      // The requirement's 'value' key is optional, provide a default value.
++      $requirement['value'] = isset($requirement['value']) ? $requirement['value'] : '';
+ 
+       // Output table row(s)
+       if (!empty($requirement['description'])) {
+diff --git a/modules/system/system.install b/modules/system/system.install
+index fa794eb..ae55b89 100644
+--- a/modules/system/system.install
++++ b/modules/system/system.install
+@@ -3271,6 +3271,21 @@ function system_update_7080() {
+ }
+ 
+ /**
++ * Remove the Drupal 6 default install profile if it is still in the database.
++ */
++function system_update_7081() {
++  // Sites which used the default install profile in Drupal 6 and then updated
++  // to Drupal 7.44 or earlier will still have a record of this install profile
++  // in the database that needs to be deleted.
++  db_delete('system')
++    ->condition('filename', 'profiles/default/default.profile')
++    ->condition('type', 'module')
++    ->condition('status', 0)
++    ->condition('schema_version', 0)
++    ->execute();
++}
++
++/**
+  * @} End of "defgroup updates-7.x-extra".
+  * The next series of updates should start at 8000.
+  */
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 8a080fa..59087c8 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -2705,10 +2705,17 @@ function system_find_base_themes($themes, $key, $used_keys = array()) {
+  * @param $show
+  *   Possible values: REGIONS_ALL or REGIONS_VISIBLE. Visible excludes hidden
+  *   regions.
+- * @return
+- *   An array of regions in the form $region['name'] = 'description'.
++ * @param bool $labels
++ *   (optional) Boolean to specify whether the human readable machine names
++ *   should be returned or not. Defaults to TRUE, but calling code can set
++ *   this to FALSE for better performance, if it only needs machine names.
++ *
++ * @return array
++ *   An associative array of regions in the form $region['name'] = 'description'
++ *   if $labels is set to TRUE, or $region['name'] = 'name', if $labels is set
++ *   to FALSE.
+  */
+-function system_region_list($theme_key, $show = REGIONS_ALL) {
++function system_region_list($theme_key, $show = REGIONS_ALL, $labels = TRUE) {
+   $themes = list_themes();
+   if (!isset($themes[$theme_key])) {
+     return array();
+@@ -2719,10 +2726,14 @@ function system_region_list($theme_key, $show = REGIONS_ALL) {
+   // If requested, suppress hidden regions. See block_admin_display_form().
+   foreach ($info['regions'] as $name => $label) {
+     if ($show == REGIONS_ALL || !isset($info['regions_hidden']) || !in_array($name, $info['regions_hidden'])) {
+-      $list[$name] = t($label);
++      if ($labels) {
++        $list[$name] = t($label);
++      }
++      else {
++        $list[$name] = $name;
++      }
+     }
+   }
+-
+   return $list;
+ }
+ 
+@@ -2743,12 +2754,13 @@ function system_system_info_alter(&$info, $file, $type) {
+  *
+  * @param $theme
+  *   The name of a theme.
++ *
+  * @return
+  *   A string that is the region name.
+  */
+ function system_default_region($theme) {
+-  $regions = array_keys(system_region_list($theme, REGIONS_VISIBLE));
+-  return isset($regions[0]) ? $regions[0] : '';
++  $regions = system_region_list($theme, REGIONS_VISIBLE, FALSE);
++  return $regions ? reset($regions) : '';
+ }
+ 
+ /**
+@@ -3354,7 +3366,8 @@ function system_goto_action($entity, $context) {
+  */
+ function system_block_ip_action() {
+   $ip = ip_address();
+-  db_insert('blocked_ips')
++  db_merge('blocked_ips')
++    ->key(array('ip' => $ip))
+     ->fields(array('ip' => $ip))
+     ->execute();
+   watchdog('action', 'Banned IP address %ip', array('%ip' => $ip));
+@@ -3516,8 +3529,7 @@ function system_retrieve_file($url, $destination = NULL, $managed = FALSE, $repl
+ function system_page_alter(&$page) {
+   // Find all non-empty page regions, and add a theme wrapper function that
+   // allows them to be consistently themed.
+-  $regions = system_region_list($GLOBALS['theme']);
+-  foreach (array_keys($regions) as $region) {
++  foreach (system_region_list($GLOBALS['theme'], REGIONS_ALL, FALSE) as $region) {
+     if (!empty($page[$region])) {
+       $page[$region]['#theme_wrappers'][] = 'region';
+       $page[$region]['#region'] = $region;
+diff --git a/modules/system/system.test b/modules/system/system.test
+index 0542adf..ec71093 100644
+--- a/modules/system/system.test
++++ b/modules/system/system.test
+@@ -726,7 +726,7 @@ function testIPAddressValidation() {
+ 
+     // Block a valid IP address.
+     $edit = array();
+-    $edit['ip'] = '192.168.1.1';
++    $edit['ip'] = '1.2.3.3';
+     $this->drupalPost('admin/config/people/ip-blocking', $edit, t('Add'));
+     $ip = db_query("SELECT iid from {blocked_ips} WHERE ip = :ip", array(':ip' => $edit['ip']))->fetchField();
+     $this->assertTrue($ip, t('IP address found in database.'));
+@@ -734,7 +734,7 @@ function testIPAddressValidation() {
+ 
+     // Try to block an IP address that's already blocked.
+     $edit = array();
+-    $edit['ip'] = '192.168.1.1';
++    $edit['ip'] = '1.2.3.3';
+     $this->drupalPost('admin/config/people/ip-blocking', $edit, t('Add'));
+     $this->assertText(t('This IP address is already blocked.'));
+ 
+@@ -770,6 +770,25 @@ function testIPAddressValidation() {
+      // $this->drupalPost('admin/config/people/ip-blocking', $edit, t('Save'));
+      // $this->assertText(t('You may not block your own IP address.'));
+   }
++
++  /**
++   * Test duplicate IP addresses are not present in the 'blocked_ips' table.
++   */
++  function testDuplicateIpAddress() {
++    drupal_static_reset('ip_address');
++    $submit_ip = $_SERVER['REMOTE_ADDR'] = '192.168.1.1';
++    system_block_ip_action();
++    system_block_ip_action();
++    $ip_count = db_query("SELECT iid from {blocked_ips} WHERE ip = :ip", array(':ip' => $submit_ip))->rowCount();
++    $this->assertEqual('1', $ip_count);
++    drupal_static_reset('ip_address');
++    $submit_ip = $_SERVER['REMOTE_ADDR'] = ' ';
++    system_block_ip_action();
++    system_block_ip_action();
++    system_block_ip_action();
++    $ip_count = db_query("SELECT iid from {blocked_ips} WHERE ip = :ip", array(':ip' => $submit_ip))->rowCount();
++    $this->assertEqual('1', $ip_count);
++  }
+ }
+ 
+ class CronRunTestCase extends DrupalWebTestCase {
+@@ -2449,6 +2468,12 @@ function testRequirements() {
+     $this->assertText('This is a requirements error provided by the update_script_test module.');
+     $this->clickLink('try again');
+     $this->assertText('This is a requirements error provided by the update_script_test module.');
++
++    // Check if the optional 'value' key displays without a notice.
++    variable_set('update_script_test_requirement_type', REQUIREMENT_INFO);
++    $this->drupalGet($this->update_url, array('external' => TRUE));
++    $this->assertText('This is a requirements info provided by the update_script_test module.');
++    $this->assertNoText('Notice: Undefined index: value in theme_status_report()');
+   }
+ 
+   /**
+diff --git a/modules/update/tests/themes/update_test_admintheme/update_test_admintheme.info b/modules/update/tests/themes/update_test_admintheme/update_test_admintheme.info
+new file mode 100644
+index 0000000..57dbf13
+--- /dev/null
++++ b/modules/update/tests/themes/update_test_admintheme/update_test_admintheme.info
+@@ -0,0 +1,4 @@
++name = Update test admin theme
++description = Test theme which is used as admin theme.
++core = 7.x
++hidden = TRUE
+diff --git a/modules/update/tests/update_test.module b/modules/update/tests/update_test.module
+index 6fe4bdd..594f80f 100644
+--- a/modules/update/tests/update_test.module
++++ b/modules/update/tests/update_test.module
+@@ -11,6 +11,7 @@
+ function update_test_system_theme_info() {
+   $themes['update_test_basetheme'] = drupal_get_path('module', 'update_test') . '/themes/update_test_basetheme/update_test_basetheme.info';
+   $themes['update_test_subtheme'] = drupal_get_path('module', 'update_test') . '/themes/update_test_subtheme/update_test_subtheme.info';
++  $themes['update_test_admintheme'] = drupal_get_path('module', 'update_test') . '/themes/update_test_admintheme/update_test_admintheme.info';
+   return $themes;
+ }
+ 
+diff --git a/modules/update/update.compare.inc b/modules/update/update.compare.inc
+index 072a0da..e3e0de3 100644
+--- a/modules/update/update.compare.inc
++++ b/modules/update/update.compare.inc
+@@ -104,7 +104,13 @@ function update_get_projects() {
+  * @see update_get_projects()
+  */
+ function _update_process_info_list(&$projects, $list, $project_type, $status) {
++  $admin_theme = variable_get('admin_theme', 'seven');
+   foreach ($list as $file) {
++    // The admin theme is a special case. It should always be considered enabled
++    // for the purposes of update checking.
++    if ($file->name === $admin_theme) {
++      $file->status = TRUE;
++    }
+     // A disabled base theme of an enabled sub-theme still has all of its code
+     // run by the sub-theme, so we include it in our "enabled" projects list.
+     if ($status && !$file->status && !empty($file->sub_themes)) {
+diff --git a/modules/update/update.manager.inc b/modules/update/update.manager.inc
+index 0b33a5f..c7c4e4a 100644
+--- a/modules/update/update.manager.inc
++++ b/modules/update/update.manager.inc
+@@ -59,7 +59,7 @@
+  * @see update_menu()
+  * @ingroup forms
+  */
+-function update_manager_update_form($form, $form_state = array(), $context) {
++function update_manager_update_form($form, $form_state, $context) {
+   if (!_update_manager_check_backends($form, 'update')) {
+     return $form;
+   }
+diff --git a/modules/update/update.test b/modules/update/update.test
+index 9e04cda..5ce5bb8 100644
+--- a/modules/update/update.test
++++ b/modules/update/update.test
+@@ -463,6 +463,55 @@ function testUpdateBaseThemeSecurityUpdate() {
+   }
+ 
+   /**
++   * Tests that the admin theme is always notified about security updates.
++   */
++  function testUpdateAdminThemeSecurityUpdate() {
++    // Disable the admin theme.
++    db_update('system')
++      ->fields(array('status' => 0))
++      ->condition('type', 'theme')
++      ->condition('name', 'update_test_%', 'LIKE')
++      ->execute();
++
++    variable_set('admin_theme', 'update_test_admintheme');
++
++    // Define the initial state for core and the themes.
++    $system_info = array(
++      '#all' => array(
++        'version' => '7.0',
++      ),
++      'update_test_admintheme' => array(
++        'project' => 'update_test_admintheme',
++        'version' => '7.x-1.0',
++        'hidden' => FALSE,
++      ),
++      'update_test_basetheme' => array(
++        'project' => 'update_test_basetheme',
++        'version' => '7.x-1.1',
++        'hidden' => FALSE,
++      ),
++      'update_test_subtheme' => array(
++        'project' => 'update_test_subtheme',
++        'version' => '7.x-1.0',
++        'hidden' => FALSE,
++      ),
++    );
++    variable_set('update_test_system_info', $system_info);
++    variable_set('update_check_disabled', FALSE);
++    $xml_mapping = array(
++      // This is enough because we don't check the update status of the admin
++      // theme. We want to check that the admin theme is included in the list.
++      'drupal' => '0',
++    );
++    $this->refreshUpdateStatus($xml_mapping);
++    // The admin theme is displayed even if it's disabled.
++    $this->assertText('update_test_admintheme', "The admin theme is checked for update even if it's disabled");
++    // The other disabled themes are not displayed.
++    $this->assertNoText('update_test_basetheme', 'Disabled theme is not checked for update in the list.');
++    $this->assertNoText('update_test_subtheme', 'Disabled theme is not checked for update in the list.');
++  }
++
++  /**
+    * Tests that disabled themes are only shown when desired.
+    */
+   function testUpdateShowDisabledThemes() {
+@@ -800,4 +849,4 @@ function testUpdateBuildFetchUrl() {
+     $this->assertEqual($url, $expected, "When ? is present, '$url' should be '$expected'.");
+ 
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/modules/user/user.module b/modules/user/user.module
+index 0ba9654..b818d79 100644
+--- a/modules/user/user.module
++++ b/modules/user/user.module
+@@ -418,8 +418,6 @@ function user_load_by_name($name) {
+  *
+  * @return
+  *   A fully-loaded $user object upon successful save or FALSE if the save failed.
+- *
+- * @todo D8: Drop $edit and fix user_save() to be consistent with others.
+  */
+ function user_save($account, $edit = array(), $category = 'account') {
+   $transaction = db_transaction();
+diff --git a/sites/default/default.settings.php b/sites/default/default.settings.php
+index d3e6916..b044be3 100644
+--- a/sites/default/default.settings.php
++++ b/sites/default/default.settings.php
+@@ -155,7 +155,7 @@
+  *   These settings are available as of MySQL 5.5.14, and are defaults in
+  *   MySQL 5.7.7 and up.
+  * - The PHP MySQL driver must support the utf8mb4 charset (libmysqlclient
+-     5.5.3 and up, as well as mysqlnd 5.0.9 and up).
++ *   5.5.3 and up, as well as mysqlnd 5.0.9 and up).
+  * - The MySQL server must support the utf8mb4 charset (5.5.3 and up).
+  *
+  * You can optionally set prefixes for some or all database table names
+@@ -616,3 +616,15 @@
+  * Remove the leading hash sign to enable.
+  */
+ # $conf['theme_debug'] = TRUE;
++
++/**
++ * CSS identifier double underscores allowance:
++ *
++ * To allow CSS identifiers to contain double underscores (.example__selector)
++ * for Drupal's BEM-style naming standards, uncomment the line below.
++ * Note that if you change this value in existing sites, existing page styles
++ * may be broken.
++ *
++ * @see drupal_clean_css_identifier()
++ */
++# $conf['allow_css_double_underscores'] = TRUE;
