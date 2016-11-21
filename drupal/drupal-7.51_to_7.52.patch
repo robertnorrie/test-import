@@ -1,0 +1,274 @@
+diff --git a/CHANGELOG.txt b/CHANGELOG.txt
+index 1cfc6da..552dbde 100644
+--- a/CHANGELOG.txt
++++ b/CHANGELOG.txt
+@@ -1,4 +1,8 @@
+ 
++Drupal 7.52, 2016-11-16
++-----------------------
++- Fixed security issues (multiple vulnerabilities). See SA-CORE-2016-005.
++
+ Drupal 7.51, 2016-10-05
+ -----------------------
+ - The Update module now also checks for updates to a disabled theme that is
+diff --git a/includes/bootstrap.inc b/includes/bootstrap.inc
+index 3c41c69..8ff7379 100644
+--- a/includes/bootstrap.inc
++++ b/includes/bootstrap.inc
+@@ -8,7 +8,7 @@
+ /**
+  * The current system version.
+  */
+-define('VERSION', '7.51');
++define('VERSION', '7.52');
+ 
+ /**
+  * Core API compatibility.
+diff --git a/includes/database/select.inc b/includes/database/select.inc
+index 3abd205..8d84460 100644
+--- a/includes/database/select.inc
++++ b/includes/database/select.inc
+@@ -1231,6 +1231,21 @@ public function preExecute(SelectQueryInterface $query = NULL) {
+ 
+     // Modules may alter all queries or only those having a particular tag.
+     if (isset($this->alterTags)) {
++      // Many contrib modules assume that query tags used for access-checking
++      // purposes follow the pattern $entity_type . '_access'. But this is
++      // not the case for taxonomy terms, since core used to add term_access
++      // instead of taxonomy_term_access to its queries. Provide backwards
++      // compatibility by adding both tags here instead of attempting to fix
++      // all contrib modules in a coordinated effort.
++      // TODO:
++      // - Extract this mechanism into a hook as part of a public (non-security)
++      //   issue.
++      // - Emit E_USER_DEPRECATED if term_access is used.
++      //   https://www.drupal.org/node/2575081
++      $term_access_tags = array('term_access' => 1, 'taxonomy_term_access' => 1);
++      if (array_intersect_key($this->alterTags, $term_access_tags)) {
++        $this->alterTags += $term_access_tags;
++      }
+       $hooks = array('query');
+       foreach ($this->alterTags as $tag => $value) {
+         $hooks[] = 'query_' . $tag;
+diff --git a/modules/simpletest/tests/taxonomy_test.module b/modules/simpletest/tests/taxonomy_test.module
+index f82950c..f414438 100644
+--- a/modules/simpletest/tests/taxonomy_test.module
++++ b/modules/simpletest/tests/taxonomy_test.module
+@@ -109,3 +109,33 @@ function taxonomy_test_get_antonym($tid) {
+     ->execute()
+     ->fetchField();
+ }
++
++/**
++ * Implements hook_query_alter().
++ */
++function taxonomy_test_query_alter(QueryAlterableInterface $query) {
++  $value = variable_get(__FUNCTION__);
++  if (isset($value)) {
++    variable_set(__FUNCTION__, ++$value);
++  }
++}
++
++/**
++ * Implements hook_query_TAG_alter().
++ */
++function taxonomy_test_query_term_access_alter(QueryAlterableInterface $query) {
++  $value = variable_get(__FUNCTION__);
++  if (isset($value)) {
++    variable_set(__FUNCTION__, ++$value);
++  }
++}
++
++/**
++ * Implements hook_query_TAG_alter().
++ */
++function taxonomy_test_query_taxonomy_term_access_alter(QueryAlterableInterface $query) {
++  $value = variable_get(__FUNCTION__);
++  if (isset($value)) {
++    variable_set(__FUNCTION__, ++$value);
++  }
++}
+diff --git a/modules/system/system.module b/modules/system/system.module
+index 59087c8..ae7c432 100644
+--- a/modules/system/system.module
++++ b/modules/system/system.module
+@@ -2883,7 +2883,7 @@ function confirm_form($form, $question, $path, $description = NULL, $yes = NULL,
+ 
+   // Prepare cancel link.
+   if (isset($_GET['destination'])) {
+-    $options = drupal_parse_url(urldecode($_GET['destination']));
++    $options = drupal_parse_url($_GET['destination']);
+   }
+   elseif (is_array($path)) {
+     $options = $path;
+diff --git a/modules/taxonomy/taxonomy.module b/modules/taxonomy/taxonomy.module
+index 554d6d2..981649d 100644
+--- a/modules/taxonomy/taxonomy.module
++++ b/modules/taxonomy/taxonomy.module
+@@ -1023,7 +1023,7 @@ function taxonomy_get_parents($tid) {
+     $query->join('taxonomy_term_hierarchy', 'h', 'h.parent = t.tid');
+     $query->addField('t', 'tid');
+     $query->condition('h.tid', $tid);
+-    $query->addTag('term_access');
++    $query->addTag('taxonomy_term_access');
+     $query->orderBy('t.weight');
+     $query->orderBy('t.name');
+     $tids = $query->execute()->fetchCol();
+@@ -1081,7 +1081,7 @@ function taxonomy_get_children($tid, $vid = 0) {
+     if ($vid) {
+       $query->condition('t.vid', $vid);
+     }
+-    $query->addTag('term_access');
++    $query->addTag('taxonomy_term_access');
+     $query->orderBy('t.weight');
+     $query->orderBy('t.name');
+     $tids = $query->execute()->fetchCol();
+@@ -1129,7 +1129,7 @@ function taxonomy_get_tree($vid, $parent = 0, $max_depth = NULL, $load_entities
+     $query->join('taxonomy_term_hierarchy', 'h', 'h.tid = t.tid');
+     $result = $query
+       ->addTag('translatable')
+-      ->addTag('term_access')
++      ->addTag('taxonomy_term_access')
+       ->fields('t')
+       ->fields('h', array('parent'))
+       ->condition('t.vid', $vid)
+@@ -1249,7 +1249,7 @@ class TaxonomyTermController extends DrupalDefaultEntityController {
+   protected function buildQuery($ids, $conditions = array(), $revision_id = FALSE) {
+     $query = parent::buildQuery($ids, $conditions, $revision_id);
+     $query->addTag('translatable');
+-    $query->addTag('term_access');
++    $query->addTag('taxonomy_term_access');
+     // When name is passed as a condition use LIKE.
+     if (isset($conditions['name'])) {
+       $query_conditions = &$query->conditions();
+diff --git a/modules/taxonomy/taxonomy.pages.inc b/modules/taxonomy/taxonomy.pages.inc
+index 975ff12..38b24b3 100644
+--- a/modules/taxonomy/taxonomy.pages.inc
++++ b/modules/taxonomy/taxonomy.pages.inc
+@@ -150,7 +150,7 @@ function taxonomy_autocomplete($field_name = '', $tags_typed = '') {
+ 
+     $query = db_select('taxonomy_term_data', 't');
+     $query->addTag('translatable');
+-    $query->addTag('term_access');
++    $query->addTag('taxonomy_term_access');
+ 
+     // Do not select already entered terms.
+     if (!empty($tags_typed)) {
+diff --git a/modules/taxonomy/taxonomy.test b/modules/taxonomy/taxonomy.test
+index e9dac1e..a4b7ee8 100644
+--- a/modules/taxonomy/taxonomy.test
++++ b/modules/taxonomy/taxonomy.test
+@@ -1983,3 +1983,113 @@ class TaxonomyEFQTestCase extends TaxonomyWebTestCase {
+   }
+ 
+ }
++
++/**
++ * Tests that appropriate query tags are added.
++ */
++class TaxonomyQueryAlterTestCase extends TaxonomyWebTestCase {
++  public static function getInfo() {
++    return array(
++      'name' => 'Taxonomy query tags',
++      'description' => 'Verifies that taxonomy_term_access tags are added to queries.',
++      'group' => 'Taxonomy',
++    );
++  }
++
++  public function setUp() {
++    parent::setUp('taxonomy_test');
++  }
++
++  /**
++   * Tests that appropriate tags are added when querying the database.
++   */
++  public function testTaxonomyQueryAlter() {
++    // Create a new vocabulary and add a few terms to it.
++    $vocabulary = $this->createVocabulary();
++    $terms = array();
++    for ($i = 0; $i < 5; $i++) {
++      $terms[$i] = $this->createTerm($vocabulary);
++    }
++
++    // Set up hierarchy. Term 2 is a child of 1.
++    $terms[2]->parent = array($terms[1]->tid);
++    taxonomy_term_save($terms[2]);
++
++    $this->setupQueryTagTestHooks();
++    $loaded_term = taxonomy_term_load($terms[0]->tid);
++    $this->assertEqual($loaded_term->tid, $terms[0]->tid, 'First term was loaded');
++    $this->assertQueryTagTestResult(1, 'taxonomy_term_load()');
++
++    $this->setupQueryTagTestHooks();
++    $loaded_terms = taxonomy_get_tree($vocabulary->vid);
++    $this->assertEqual(count($loaded_terms), count($terms), 'All terms were loaded');
++    $this->assertQueryTagTestResult(1, 'taxonomy_get_tree()');
++
++    $this->setupQueryTagTestHooks();
++    $loaded_terms = taxonomy_get_parents($terms[2]->tid);
++    $this->assertEqual(count($loaded_terms), 1, 'All parent terms were loaded');
++    $this->assertQueryTagTestResult(2, 'taxonomy_get_parents()');
++
++    $this->setupQueryTagTestHooks();
++    $loaded_terms = taxonomy_get_children($terms[1]->tid);
++    $this->assertEqual(count($loaded_terms), 1, 'All child terms were loaded');
++    $this->assertQueryTagTestResult(2, 'taxonomy_get_children()');
++
++    $this->setupQueryTagTestHooks();
++    $query = db_select('taxonomy_term_data', 't');
++    $query->addField('t', 'tid');
++    $query->addTag('taxonomy_term_access');
++    $tids = $query->execute()->fetchCol();
++    $this->assertEqual(count($tids), count($terms), 'All term IDs were retrieved');
++    $this->assertQueryTagTestResult(1, 'custom db_select() with taxonomy_term_access tag (preferred)');
++
++    $this->setupQueryTagTestHooks();
++    $query = db_select('taxonomy_term_data', 't');
++    $query->addField('t', 'tid');
++    $query->addTag('term_access');
++    $tids = $query->execute()->fetchCol();
++    $this->assertEqual(count($tids), count($terms), 'All term IDs were retrieved');
++    $this->assertQueryTagTestResult(1, 'custom db_select() with term_access tag (deprecated)');
++
++    $this->setupQueryTagTestHooks();
++    $query = new EntityFieldQuery();
++    $query->entityCondition('entity_type', 'taxonomy_term');
++    $query->addTag('taxonomy_term_access');
++    $result = $query->execute();
++    $this->assertEqual(count($result['taxonomy_term']), count($terms), 'All term IDs were retrieved');
++    $this->assertQueryTagTestResult(1, 'custom EntityFieldQuery with taxonomy_term_access tag (preferred)');
++
++    $this->setupQueryTagTestHooks();
++    $query = new EntityFieldQuery();
++    $query->entityCondition('entity_type', 'taxonomy_term');
++    $query->addTag('term_access');
++    $result = $query->execute();
++    $this->assertEqual(count($result['taxonomy_term']), count($terms), 'All term IDs were retrieved');
++    $this->assertQueryTagTestResult(1, 'custom EntityFieldQuery with term_access tag (deprecated)');
++  }
++
++  /**
++   * Sets up the hooks in the test module.
++   */
++  protected function setupQueryTagTestHooks() {
++    taxonomy_terms_static_reset();
++    variable_set('taxonomy_test_query_alter', 0);
++    variable_set('taxonomy_test_query_term_access_alter', 0);
++    variable_set('taxonomy_test_query_taxonomy_term_access_alter', 0);
++  }
++
++  /**
++   * Verifies invocation of the hooks in the test module.
++   *
++   * @param int $expected_invocations
++   *   The number of times the hooks are expected to have been invoked.
++   * @param string $method
++   *   A string describing the invoked function which generated the query.
++   */
++  protected function assertQueryTagTestResult($expected_invocations, $method) {
++    $this->assertIdentical($expected_invocations, variable_get('taxonomy_test_query_alter'), 'hook_query_alter() invoked when executing ' . $method);
++    $this->assertIdentical($expected_invocations, variable_get('taxonomy_test_query_term_access_alter'), 'Deprecated hook_query_term_access_alter() invoked when executing ' . $method);
++    $this->assertIdentical($expected_invocations, variable_get('taxonomy_test_query_taxonomy_term_access_alter'), 'Preferred hook_query_taxonomy_term_access_alter() invoked when executing ' . $method);
++  }
++
++}
